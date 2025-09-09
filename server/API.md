@@ -1,0 +1,401 @@
+# Tatou API Documentation
+
+---
+
+# Routes
+
+- [create-user](#create-user) — **POST** `/api/create-user`
+- [create-watermark](#create-watermark)
+  - **POST** `/api/create-watermark/<int:document_id>`
+  - **POST** `/api/create-watermark`
+- [delete-document](#delete-document)
+  - **DELETE** `/api/delete-document/<document_id>`
+  - **DELETE, POST** `/api/delete-document`
+- [get-document](#get-document)
+  - **GET** `/api/get-document/<int:document_id>`
+  - **GET** `/api/get-document`
+- [get-version](#get-version) — **GET** `/api/get-version/<link>`
+- [get-watermarking_methods](#get-watermarking-methods) — **GET** `/api/get-watermarking-methods`
+- [healthz](#healthz) — **GET** `/healthz`
+- [list-all-versions](#list-all-versions) — **GET** `/api/list-all-versions`
+- [list-pdf](#list-pdf) — **GET** `/api/list-documents`
+- [list-versions](#list-versions)
+  - **GET** `/api/list-versions/<int:document_id>`
+  - **GET** `/api/list-versions`
+- [login](#login) — **POST** `/api/login`
+- [read-watermark](#read-watermark)
+  - **POST** `/api/read-watermark/<int:document_id>`
+  - **POST** `/api/read-watermark`
+- [upload-document](#upload-document) — **POST** `/api/upload-document`
+
+
+
+## healthz
+
+**Path**
+`GET /api/healthz`
+
+**Description**  
+This endpoint checks the health of the server and confirms it is running.
+
+**Parameters**  
+_None_
+
+**Return**
+```json
+{
+  "message": <string>
+}
+```
+
+**Specification**
+ * The healthz endpoint MUST be accessible without authentication.
+ * The response MUST always contain a "message" field of type string.
+ 
+ ## create-user
+ 
+**Path**
+`POST /api/create-user`
+
+**Description**  
+This endpoint creates a new user account in the system.
+
+**Parameters**
+```json
+{
+  "login": <string>,
+  "password": <string>,
+  "email": <email>
+}
+```
+
+**Return**
+```json
+{
+  "id": <int>,
+  "login": <string>,
+  "email": <email>
+}
+```
+
+
+**Specification**
+ * The create-user endpoint MUST validate that username, password, and email are provided.
+ * The response MUST include a unique id along with the created username and email.
+
+
+## login
+
+**Path**
+`POST /api/login`
+
+**Description**  
+This endpoint authenticates a user with their credentials and returns a session token.
+
+**Parameters**
+```json
+{
+  "email": <string>,
+  "password": <string>
+}
+```
+
+**Return**
+```json
+{
+  "token": <string>,
+  "token_type": "bearer",
+  "expires_in": <int>
+}
+```
+
+**Specification**
+ * The login endpoint MUST reject requests missing email or password.
+ * The response MUST include a token string and its expiration date as an integer Time To Live in seconds.
+ 
+ ## upload-document
+
+**Path**
+`POST /api/upload-document`
+
+**Description**  
+This endpoint uploads a PDF document to the server and registers its metadata.
+
+**Parameters**
+```json
+{
+  "file": <pdf file>,
+  "name": <string>
+}
+```
+
+**Return**
+```json
+{
+  "id": <string>,
+  "name": <string>,
+  "creation": <date ISO 8601>,
+  "sha256": <string>,
+  "size": <int>
+}
+```
+
+**Specification**
+ * Requires authentication
+ * The upload-pdf endpoint MUST accept only files in PDF format.
+
+## list-documents
+
+**Path**
+`GET /api/list-documents`
+
+**Description**  
+This endpoint lists all uploaded PDF documents along with their metadata.
+
+**Parameters**  
+_None_
+
+**Return**
+```json
+{
+  "documents": [
+    {
+      "id": <string>,
+      "name": <string>,
+      "creation": <date ISO 8601>,
+      "sha256": <string>,
+      "size": <int>
+    }
+  ]
+}
+```
+
+**Specification**
+ * Requires authentication
+ * The response MUST return all documents of the user.
+ 
+ ## list-versions
+
+**Description**  
+This endpoint lists all watermarked versions of a given PDF document along with their metadata.
+
+**Path**
+`GET /api/list-versions`
+
+**Parameters**
+```json
+{
+  "documentid": <int>
+}
+```
+
+**Path**
+`GET /api/list-versions/<int:document_id>`
+
+**Parameters**  
+_None_
+
+**Return**
+```json
+{
+  "versions": [
+    {
+      "id": <string>,
+      "documentid": <string>,
+      "link": <string>,
+      "intended_for": <string>,
+      "secret": <string>,
+      "method": <string>
+    }
+  ]
+}
+```
+
+
+
+**Specification**
+ * Requires authentication
+ 
+ 
+ ## list-all-versions
+ 
+**Path**
+`GET /api/list-versions`
+
+**Description**  
+This endpoint lists all versions of all PDF documents for the authenticated user stored in the system.
+
+**Parameters**  
+_None_
+
+**Return**
+```json
+{
+  "versions": [
+    {
+      "id": <string>,
+      "documentid": <string>,
+      "link": <string>,
+      "intended_for": <string>,
+      "secret": <string>,
+      "method": <string>
+    }
+  ]
+}
+```
+
+**Specification**
+ * Requires authentication
+ 
+ ## get-document
+ 
+**Description**  
+This endpoint retrieves a PDF document by fetching a specific one when an `id` is provided.
+ 
+**Path**
+`GET /api/get-document`
+
+
+**Parameters**
+```json
+{
+  "id": <int>
+}
+```
+
+**Path**
+`GET /api/get-document/<int:document_id>`
+
+**Return**
+Inline PDF file in binary format.
+
+**Specification**
+ * Requires authentication
+ 
+  ## get-watermarking-methods
+ 
+**Description**  
+This endpoint lists all available watermarking methods.
+ 
+**Path**
+`GET /api/get-watermarking-methods`
+
+
+**Parameters**
+_None_
+
+
+**Return**
+```json
+{
+    "count": <int>,
+    "methods": [
+        {
+            "description":<string>,
+            "name": <string>"
+        }
+    ]
+}
+```
+
+**Specification**
+ * The endpoint MUST return all methods in `watermarking_utils.METHODS`.
+ 
+   ## read-watermark
+ 
+**Description**  
+This endpoint reads information contain in a pdf document's watermark with the provided method.
+ 
+**Path**
+`POST /api/read-watermark`
+
+**Parameters**
+```json
+{
+    "method": <string>,
+    "position": <string>,
+    "key": <string>,
+    "id": <int>
+}
+```
+ 
+**Path**
+`POST /api/read-watermark<int:document_id>`
+
+
+**Parameters**
+```json
+{
+    "method": <string>,
+    "position": <string>,
+    "key": <string>
+}
+```
+
+
+**Return**
+```json
+{
+    "documentid": <int>,
+    "secret": <string>,
+    "method": <string>,
+    "position": <string>
+}
+```
+
+**Specification**
+ * The endpoint MUST return the secret read in the document.
+
+
+   ## create-watermark
+ 
+**Description**  
+This endpoint reads information contain in a pdf document's watermark with the provided method.
+ 
+**Path**
+`POST /api/create-watermark`
+
+**Parameters**
+```json
+{
+    "method": <string>,
+    "position": <string>,
+    "key": <string>,
+    "secret": <string>,
+    "intended_for": <string>,
+    "id": <int>
+}
+```
+ 
+**Path**
+`POST /api/create-watermark<int:document_id>`
+
+
+**Parameters**
+```json
+{
+    "method": <string>,
+    "position": <string>,
+    "key": <string>,
+    "secret": <string>,
+    "intended_for": <string>
+}
+```
+
+
+**Return**
+```json
+{
+    "id": <int>,
+    "documentid": <int>,
+    "link": <string>,
+    "intended_for": <string>,
+    "method": <string>,
+    "position": <string>,
+    "filename": <string>,
+    "size": <int>
+}
+```
+
+**Specification**
+ * Only the owner of a document should 

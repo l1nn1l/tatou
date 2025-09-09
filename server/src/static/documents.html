@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>My Documents • Tatou</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="container nav">
+      <a href="index.html" class="brand">
+        <span class="brand__dot"></span>
+        <span>Tatou</span>
+      </a>
+      <nav class="nav__links">
+        <button id="logoutBtn" class="btn" type="button">Log out</button>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container" style="padding-bottom:40px;">
+    <section class="card" style="margin:20px 0;">
+      <h1 style="margin:0 0 12px;">My documents</h1>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+        <form id="uploadForm" enctype="multipart/form-data" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <input type="file" id="file" name="file" accept="application/pdf" required>
+          <input type="text" id="name" name="name" placeholder="Document name" required>
+          <button class="btn btn--primary" type="submit">Upload PDF</button>
+        </form>
+        <span id="status" class="muted"></span>
+      </div>
+    </section>
+
+    <section class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <h2 style="margin:0 0 8px;">Documents</h2>
+        <button class="btn" id="refreshBtn" type="button">Refresh</button>
+      </div>
+      <div class="table-wrap">
+        <table class="table" id="docsTable" aria-label="Your documents">
+          <thead>
+            <tr>
+              <th style="width:80px;">ID</th>
+              <th>Name</th>
+              <th>Created</th>
+              <th>Size</th>
+              <th>SHA-256</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="docsBody">
+            <tr><td colspan="6" class="muted">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <div id="modal" class="modal" hidden>
+      <div class="modal__card card" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+          <h3 id="modalTitle" style="margin:0;">Details</h3>
+          <button class="btn" id="modalClose" type="button">Close</button>
+        </div>
+        <div id="modalContent" style="margin-top:10px;"></div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const token = localStorage.getItem('authToken');
+    if (!token) window.location.href = 'login.html';
+
+    function apiFetch(path, options = {}) {
+      const headers = new Headers(options.headers || {});
+      headers.set('Authorization', 'Bearer ' + token);
+      return fetch(path, { ...options, headers });
+    }
+    function apiFetchJSON(path, method, obj){
+      return apiFetch(path, {
+        method: method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(obj)
+      });
+    }
+
+    let methodsCache = null;
+    async function loadMethods(){
+      if (methodsCache) return methodsCache;
+      const r = await apiFetch('/api/get-watermarking-methods');
+      if (!r.ok) throw new Error('Failed to fetch methods');
+      const data = await r.json();
+      methodsCache = (data.methods || []).map(m => ({ name: m.name, description: m.description }));
+      return methodsCache;
+    }
+
+    const docsBody = document.getElementById('docsBody');
+    const statusEl = document.getElementById('status');
+    const modal = document.getElementById('modal');
+    const modalContent = document.getElementById('modalContent');
+    const modalTitle = document.getElementById('modalTitle');
+    document.getElementById('modalClose').onclick = () => modal.hidden = true;
+
+    function humanSize(bytes){
+      const units = ['B','KB','MB','GB'];
+      let i=0, n=Number(bytes)||0; while(n>=1024 && i<units.length-1){n/=1024; i++;}
+      return n.toFixed(n<10 && i>0 ? 1 : 0)+' '+units[i];
+    }
+    function escapeHtml(str){
+      return String(str ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[s]));
+    }
+    function openModal(title, html){
+      const main = document.querySelector('main');
+      if (modal.parentElement !== main) main.appendChild(modal);
+      modalTitle.textContent = title;
+      modalContent.innerHTML = html;
+      modal.hidden = false;
+    }
+
+    async function loadDocuments(){
+      docsBody.innerHTML = '<tr><td colspan="6" class="muted">Loading…</td></tr>';
+      try {
+        const resp = await apiFetch('/api/list-documents');
+        if (!resp.ok) throw new Error('HTTP '+resp.status);
+        const data = await resp.json();
+        const rows = (data.documents || []).map(doc => {
+          const created = doc.creation ? new Date(doc.creation).toLocaleString() : '';
+          return `<tr>
+            <td>${doc.id}</td>
+            <td>${escapeHtml(doc.name)}</td>
+            <td>${created}</td>
+            <td>${humanSize(doc.size)}</td>
+            <td class="mono" title="${doc.sha256}">${doc.sha256?.slice(0,10)}…</td>
+            <td>
+              <div class="row-actions">
+                <button class="btn" data-action="view" data-id="${doc.id}">View</button>
+                <button class="btn" data-action="versions" data-id="${doc.id}">Versions</button>
+                <button class="btn" data-action="watermark" data-id="${doc.id}">Watermark</button>
+                <button class="btn" data-action="readwm" data-id="${doc.id}">Read watermark</button>
+                <button class="btn" data-action="delete" data-id="${doc.id}">Delete</button>
+              </div>
+            </td>
+          </tr>`
+        }).join('');
+        docsBody.innerHTML = rows || '<tr><td colspan="6" class="muted">No documents yet. Upload one above.</td></tr>';
+      } catch (e) {
+        docsBody.innerHTML = `<tr><td colspan="6" class="error">Failed to load: ${escapeHtml(e.message)}</td></tr>`;
+      }
+    }
+
+    document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      statusEl.textContent = 'Uploading…';
+      const fd = new FormData(e.currentTarget);
+      try {
+        const resp = await apiFetch('/api/upload-document', { method: 'POST', body: fd });
+        if (!resp.ok) {
+          const err = await resp.json().catch(()=>({}));
+          throw new Error(err.message || resp.statusText);
+        }
+        statusEl.textContent = 'Uploaded successfully';
+        e.currentTarget.reset();
+        await loadDocuments();
+      } catch (err) {
+        statusEl.textContent = 'Upload failed: ' + err.message;
+      } finally {
+        setTimeout(()=> statusEl.textContent = '', 3000);
+      }
+    });
+
+    document.getElementById('docsTable').addEventListener('click', async (e) => {
+      const btn = e.target.closest('button[data-action]');
+      if (!btn) return;
+      const id = btn.getAttribute('data-id');
+      const action = btn.getAttribute('data-action');
+      try {
+        if (action === 'delete') {
+          if (!confirm('Delete document #' + id + '?')) return;
+          const resp = await apiFetch('/api/delete-document/' + id, { method: 'DELETE' });
+          if (!resp.ok) throw new Error('HTTP ' + resp.status);
+          await loadDocuments();
+        }
+        if (action === 'view') {
+          const r = await apiFetch('/api/get-document/' + id);
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          const blob = await r.blob();
+          const url = URL.createObjectURL(blob);
+          window.open(url, '_blank');
+          setTimeout(()=> URL.revokeObjectURL(url), 60_000);
+        }
+        if (action === 'versions') {
+          const r = await apiFetch('/api/list-versions/' + id);
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          const data = await r.json();
+          const list = (data.versions||[]).map(v => `
+            <li class="list-row">
+              <div>
+                <div><strong>Link:</strong> <a href="api/get-version/${escapeHtml(v.link)}">${escapeHtml(v.link)}</a></div>
+                <div class="muted small">Method: ${escapeHtml(v.method || '')} • Intended for: ${escapeHtml(v.intended_for || '')}</div>
+              </div>
+              <div class="row-actions">
+                <button class="btn" data-open-version="${v.link}">Open</button>
+              </div>
+            </li>`).join('');
+          openModal('Watermarked versions for #' + id, `<ul class="list">${list || '<li class=muted>No versions yet.</li>'}</ul>`);
+        }
+        if (action === 'watermark') {
+          openCreateWatermarkForm(id);
+        }
+        if (action === 'readwm') {
+          openReadWatermarkForm(id);
+        }
+      } catch (err) {
+        alert('Action failed: ' + err.message);
+      }
+    });
+
+    async function openCreateWatermarkForm(documentId){
+      const methods = await loadMethods();
+      const options = methods.map(m => `<option value="${escapeHtml(m.name)}">${escapeHtml(m.name)} — ${escapeHtml(m.description||'')}</option>`).join('');
+      openModal('Create watermark for #' + documentId, `
+        <form id="createWmForm" class="form-vertical">
+          <label>Method<select name="method" required><option value="" disabled selected>Select a method</option>${options}</select></label>
+          <label>Position<input name="position" placeholder="Position"></label>
+          <label>Key<input name="key" placeholder="Reader key" required></label>
+          <label>Secret<input name="secret" placeholder="Secret embedded in WM" required></label>
+          <label>Intended for<input name="intended_for" placeholder="Recipient or purpose"></label>
+          <div class="row-actions">
+            <button class="btn" type="button" id="cancelCreate">Cancel</button>
+            <button class="btn btn--primary" type="submit">Create</button>
+          </div>
+        </form>
+      `);
+      document.getElementById('cancelCreate').onclick = () => { modal.hidden = true; };
+      document.getElementById('createWmForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.currentTarget);
+        const payload = Object.fromEntries(fd.entries());
+        try {
+          const r = await apiFetchJSON(`/api/create-watermark/${documentId}`, 'POST', payload);
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          const data = await r.json();
+          openModal('Watermark created', `<p>Version created for document <strong>#${data.documentid}</strong>.</p>
+            <p><strong>Link:</strong> <code class="mono">${escapeHtml(data.link)}</code></p>
+            <div class="row-actions"><button class="btn" data-open-version="${data.link}">Open version</button></div>`);
+        } catch(err){
+          alert('Create failed: ' + err.message);
+        }
+      });
+    }
+
+    async function openReadWatermarkForm(documentId){
+      const methods = await loadMethods();
+      const options = methods.map(m => `<option value="${escapeHtml(m.name)}">${escapeHtml(m.name)} — ${escapeHtml(m.description||'')}</option>`).join('');
+      openModal('Read watermark for #' + documentId, `
+        <form id="readWmForm" class="form-vertical">
+          <label>Method<select name="method" required><option value="" disabled selected>Select a method</option>${options}</select></label>
+          <label>Position<input name="position" placeholder="Position"></label>
+          <label>Key<input name="key" placeholder="Reader key" required></label>
+          <div class="row-actions">
+            <button class="btn" type="button" id="cancelRead">Cancel</button>
+            <button class="btn btn--primary" type="submit">Read</button>
+          </div>
+        </form>
+      `);
+      document.getElementById('cancelRead').onclick = () => { modal.hidden = true; };
+      document.getElementById('readWmForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.currentTarget);
+        const payload = Object.fromEntries(fd.entries());
+        try {
+          const r = await apiFetchJSON(`/api/read-watermark/${documentId}`, 'POST', payload);
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          const data = await r.json();
+          openModal('Watermark data', `<pre class="pre">${escapeHtml(JSON.stringify(data, null, 2))}</pre>`);
+        } catch(err){
+          alert('Read failed: ' + err.message);
+        }
+      });
+    }
+
+    modal.addEventListener('click', async (e) => {
+      const btn = e.target.closest('button[data-open-version]');
+      if (!btn) return;
+      const link = btn.getAttribute('data-open-version');
+      try {
+        const r = await apiFetch('/api/get-version/' + encodeURIComponent(link));
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const blob = await r.blob();
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank');
+        setTimeout(()=> URL.revokeObjectURL(url), 60_000);
+      } catch (err) {
+        alert('Open failed: ' + err.message);
+      }
+    });
+
+    document.getElementById('refreshBtn').onclick = loadDocuments;
+    document.getElementById('logoutBtn').onclick = () => { localStorage.removeItem('authToken'); window.location.href = 'login.html'; };
+
+    loadDocuments();
+  </script>
+</body>
+</html>
+

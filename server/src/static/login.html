@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Login • Tatou</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="container nav">
+      <a href="index.html" class="brand">
+        <span class="brand__dot"></span>
+        <span>Tatou</span>
+      </a>
+      <nav class="nav__links">
+        <a class="btn" href="signup.html">Sign up</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="card" style="max-width:420px;margin:40px auto;">
+      <h1 style="margin-top:0;">Log in to your account</h1>
+      <form id="loginForm" method="post">
+        <div style="margin-bottom:16px;">
+          <label for="email">Email</label><br>
+          <input type="email" id="email" name="email" required style="width:100%;padding:10px;border-radius:8px;border:1px solid #ccc;">
+        </div>
+        <div style="margin-bottom:20px;">
+          <label for="password">Password</label><br>
+          <input type="password" id="password" name="password" required style="width:100%;padding:10px;border-radius:8px;border:1px solid #ccc;">
+        </div>
+        <button class="btn btn--primary" type="submit" style="width:100%;">Log in</button>
+      </form>
+      <p style="margin-top:16px;font-size:14px;">Don’t have an account? <a href="signup.html">Sign up</a></p>
+    </section>
+  </main>
+
+  <script>
+    const form = document.getElementById('loginForm');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const data = {
+        email: form.email.value,
+        password: form.password.value
+      };
+      try {
+        const resp = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          alert('Error: ' + (err.message || resp.statusText));
+          return;
+        }
+        const result = await resp.json();
+        localStorage.setItem('authToken', result.token);
+        alert('Welcome back!');
+        window.location.href = 'documents.html';
+      } catch (err) {
+        alert('Network error: ' + err.message);
+      }
+    });
+  </script>
+</body>
+</html>
+

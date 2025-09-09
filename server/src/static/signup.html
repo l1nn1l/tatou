@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sign up • Tatou</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="container nav">
+      <a href="index.html" class="brand">
+        <span class="brand__dot"></span>
+        <span>Tatou</span>
+      </a>
+      <nav class="nav__links">
+        <a class="btn" href="login.html">Log in</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="card" style="max-width:420px;margin:40px auto;">
+      <h1 style="margin-top:0;">Create your account</h1>
+      <form id="signupForm" method="post">
+        <div style="margin-bottom:16px;">
+          <label for="login">Username</label><br>
+          <input type="text" id="login" name="login" required style="width:100%;padding:10px;border-radius:8px;border:1px solid #ccc;">
+        </div>
+        <div style="margin-bottom:16px;">
+          <label for="email">Email</label><br>
+          <input type="email" id="email" name="email" required style="width:100%;padding:10px;border-radius:8px;border:1px solid #ccc;">
+        </div>
+        <div style="margin-bottom:20px;">
+          <label for="password">Password</label><br>
+          <input type="password" id="password" name="password" required style="width:100%;padding:10px;border-radius:8px;border:1px solid #ccc;">
+        </div>
+        <button class="btn btn--primary" type="submit" style="width:100%;">Sign up</button>
+      </form>
+      <p style="margin-top:16px;font-size:14px;">Already have an account? <a href="login.html">Log in</a></p>
+    </section>
+  </main>
+
+  <script>
+    const form = document.getElementById('signupForm');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const data = {
+        login: form.login.value,
+        email: form.email.value,
+        password: form.password.value
+      };
+      try {
+        const resp = await fetch('/api/create-user', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          alert('Error: ' + (err.message || resp.statusText));
+          return;
+        }
+        const result = await resp.json();
+        alert('Account created! Welcome ' + result.login);
+        window.location.href = 'login.html';
+      } catch (err) {
+        alert('Network error: ' + err.message);
+      }
+    });
+  </script>
+</body>
+</html>
+
