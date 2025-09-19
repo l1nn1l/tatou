@@ -5,6 +5,48 @@ import datetime as dt
 from pathlib import Path
 from functools import wraps
 
+# Change 1
+#  Deny direct file path input & fix path traversal (Never accept a file path from user 
+#  input to read arbitrary files. If you must serve files, whitelist by ID and map to safe 
+#  disks paths. Use realpath checks.) 
+
+from flask import send_file, abort, g
+
+FLAG_BASE = "/var/flags"  # absolute path outside project
+
+def safe_path_join(base: str, *paths: str) -> str:
+    candidate = os.path.realpath(os.path.join(base, *paths))
+    base_real = os.path.realpath(base)
+    if not candidate.startswith(base_real + os.sep) and candidate != base_real:
+        raise ValueError("Path traversal detected")
+    return candidate
+
+@app.route("/api/get-flag/<which>", methods=["GET"])
+@require_auth  # MUST require auth and proper role
+def get_flag(which: str):
+    # only admin or specific user allowed
+    if g.user.get("role") != "admin":
+        return abort(403)
+    if which not in ("tatou", "totou"):
+        return abort(400)
+    filename = "tatou_flag" if which == "tatou" else "totou_flag"
+    try:
+        path = safe_path_join(FLAG_BASE, filename)
+    except ValueError:
+        return abort(400)
+
+    # final ownership & permission check (defense in depth)
+    if not os.path.exists(path):
+        return abort(404)
+    st = os.stat(path)
+    # ensure file is owned by service account and not world readable
+    if (st.st_mode & 0o077) != 0:
+        # too permissive
+        app.logger.warning("Flag file has too open permissions: %s", path)
+        return abort(500)
+
+    return send_file(path, as_attachment=False)
+
 from flask import Flask, jsonify, request, g, send_file
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
