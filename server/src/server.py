@@ -13,6 +13,8 @@ from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import IntegrityError
 
+from prometheus_flask_exporter import PrometheusMetrics
+
 import pickle as _std_pickle
 try:
     import dill as _pickle  # allows loading classes not importable by module path
@@ -26,6 +28,9 @@ from watermarking_method import WatermarkingMethod
 
 def create_app():
     app = Flask(__name__)
+    #enable prometheus metrics
+    metrics = PrometheusMetrics(app)
+    metrics.info('tatou_app', 'Tatou watermarking service', version='1.0.0')
 
     # --- Config ---
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-change-me")
