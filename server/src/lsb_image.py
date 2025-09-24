@@ -141,18 +141,18 @@ def add_watermark(self, pdf: str, secret: str, key: str,
         doc.close()
 
 
-    def read_secret(self, pdf: str, key: str,
-                    position: Optional[str] = None) -> Optional[str]:
-        doc = fitz.open(pdf)
-        try:
-            for pno in range(len(doc)):
-                imgs = doc.get_page_images(pno)
-                for xref, *_ in imgs:
-                    base = doc.extract_image(xref)
-                    bits = _extract_bits_png(base["image"])
-                    txt = _bits_to_text(bits)
-                    if txt:
-                        return txt
-            return None
-        finally:
-            doc.close()
+def read_secret(self, pdf: str, key: str,
+                position: Optional[str] = None) -> Optional[str]:
+    doc = fitz.open(pdf)
+    try:
+        for pno in range(len(doc)):
+            imgs = doc.get_page_images(pno)
+            for xref, *_ in imgs:
+                base = doc.extract_image(xref)
+                bits = _extract_bits_png(base["image"])
+                txt = _bits_to_text(bits)
+                if txt:
+                    return txt
+        return None
+    finally:
+        doc.close()
