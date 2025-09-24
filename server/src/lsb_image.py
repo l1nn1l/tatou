@@ -9,13 +9,15 @@ def _text_to_bits(s: str) -> str:
     return "".join(f"{b:08b}" for b in s.encode("utf-8")) + "00000000"  # null-terminated
 
 def _bits_to_text(bits: str) -> str:
+    """Convert bitstring back to UTF-8 text, stopping at null byte."""
     out = bytearray()
-    for i in range(0, len(bits), 8):
+    for i in range(0, len(bits) - 7, 8):  # consume 8 bits at a time
         b = int(bits[i:i+8], 2)
-        if b == 0:
+        if b == 0:  # null terminator
             break
         out.append(b)
     return out.decode("utf-8", errors="ignore")
+
 
 def _embed_bits_png(img_bytes: bytes, bits: str, channels=(0,1,2)) -> bytes:
     img = Image.open(BytesIO(img_bytes)).convert("RGBA")
@@ -55,13 +57,14 @@ def _extract_bits_png(img_bytes: bytes, max_bits=(1<<18), channels=(0,1,2)) -> s
     bits = []
     for y in range(h):
         for x in range(w):
-            r,g,b,a = px[x, y]
-            vals = (r,g,b,a)
-            for idx in channels:
+            r, g, b, a = px[x, y]
+            vals = (r, g, b)  # ignore alpha
+            for idx in range(len(vals)):
                 bits.append(str(vals[idx] & 1))
                 if len(bits) >= max_bits:
                     return "".join(bits)
     return "".join(bits)
+
 
 class LSBImageMethod(WatermarkingMethod):
     """
