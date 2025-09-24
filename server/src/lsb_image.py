@@ -88,31 +88,58 @@ class LSBImageMethod(WatermarkingMethod):
         except Exception:
             return False
 
-    def add_watermark(self, pdf: str, secret: str, key: str,
-                      position: Optional[str] = None) -> bytes:
-        bits = _text_to_bits(secret)
-        doc = fitz.open(pdf)
-        replaced = False
+def add_watermark(self, pdf: str, secret: str, key: str,
+                  position: Optional[str] = None) -> bytes:
+    bits = _text_to_bits(secret)
+    doc = fitz.open(pdf)
+    replaced = False
 
+    try:
         for pno in range(len(doc)):
-            imgs = doc.get_page_images(pno)
-            for xref, *_ in imgs:
+            for xref, *_ in doc.get_page_images(pno):
                 base = doc.extract_image(xref)
-                new_png = _embed_bits_png(base["image"], bits)
-                doc.update_stream(xref, new_png)  # replace the image stream
-                replaced = True
-                break
+                if not base or "image" not in base:
+                    continue
+
+                raw = base["image"]
+
+                # Try to open with Pillow; skip images Pillow can’t read (JBIG2/CCITT)
+                try:
+                    Image.open(BytesIO(raw)).load()
+                except Exception:
+                    continue
+
+                # Embed our bits into an RGBA PNG (lossless)
+                new_png = _embed_bits_png(raw, bits)
+
+                # Replace image stream. Some encodings don’t like stream swap;
+                # try update_stream first, then fall back to Pixmap route.
+                try:
+                    doc.update_stream(xref, new_png)
+                    replaced = True
+                except Exception:
+                    # Fallback: replace via Pixmap (more compatible)
+                    try:
+                        pix = fitz.Pixmap(new_png)  # PyMuPDF can read PNG bytes directly
+                        doc.update_image(xref, pix)
+                        replaced = True
+                    except Exception:
+                        continue  # try next image
+
+                if replaced:
+                    break
             if replaced:
                 break
 
         if not replaced:
-            doc.close()
-            raise RuntimeError("No embeddable image found in PDF")
+            raise RuntimeError("No embeddable image found (or unsupported image encoding)")
 
         out = BytesIO()
         doc.save(out)
-        doc.close()
         return out.getvalue()
+    finally:
+        doc.close()
+
 
     def read_secret(self, pdf: str, key: str,
                     position: Optional[str] = None) -> Optional[str]:
