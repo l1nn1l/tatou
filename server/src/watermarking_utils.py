@@ -35,6 +35,8 @@ import io
 import json
 import os
 import re
+from visible_stamp import VisibleStampMethod #LL call for new watermarking method
+from lsb_image import LSBImageMethod #LL call for new watermarking method
 
 from watermarking_method import (
     PdfSource,
@@ -44,13 +46,16 @@ from watermarking_method import (
 from add_after_eof import AddAfterEOF
 from unsafe_bash_bridge_append_eof import UnsafeBashBridgeAppendEOF
 
+
 # --------------------
 # Method registry
 # --------------------
 
 METHODS: Dict[str, WatermarkingMethod] = {
     AddAfterEOF.name: AddAfterEOF(),
-    UnsafeBashBridgeAppendEOF.name: UnsafeBashBridgeAppendEOF()
+    UnsafeBashBridgeAppendEOF.name: UnsafeBashBridgeAppendEOF(),
+    VisibleStampMethod.name: VisibleStampMethod(), 
+    LSBImageMethod.name: LSBImageMethod()
 }
 """Registry of available watermarking methods.
 

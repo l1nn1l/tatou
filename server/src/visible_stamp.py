@@ -1,11 +1,8 @@
-# visible_stamp.py
 from __future__ import annotations
 from io import BytesIO
 from typing import Optional
 from PyPDF2 import PdfReader, PdfWriter
 from reportlab.pdfgen import canvas
-
-# import your base class
 from watermarking_method import WatermarkingMethod
 
 def _make_stamp_page(text: str, w: float, h: float,
@@ -14,8 +11,7 @@ def _make_stamp_page(text: str, w: float, h: float,
     buf = BytesIO()
     c = canvas.Canvas(buf, pagesize=(w, h))
     try:
-        # some reportlab versions lack setFillAlpha; best-effort
-        c.setFillAlpha(opacity)
+        c.setFillAlpha(opacity)  # some reportlab builds lack this; best effort
     except Exception:
         pass
     c.saveState()
@@ -30,19 +26,31 @@ def _make_stamp_page(text: str, w: float, h: float,
     return buf
 
 class VisibleStampMethod(WatermarkingMethod):
+    """
+    Overlay a visible diagonal stamp that includes the secret.
+    Also stores the secret in PDF metadata (/TatouSecret) for deterministic readout.
+    """
     name = "visible"
-    description = "Overlay visible diagonal text on each page and store secret in PDF metadata."
+    description = "Visible diagonal text overlay + metadata field (/TatouSecret)."
 
-    def is_applicable(self, pdf_path: str, position: Optional[str] = None) -> bool:
+    # ----- interface required by your base class -----
+
+    def get_usage(self) -> str:
+        # Keep it simple; your teacher’s CLI uses this for help text
+        return "params: method='visible', key=<str>, secret=<str>, position(optional)"
+
+    def is_watermark_applicable(self, pdf: str, position: Optional[str] = None) -> bool:
         try:
-            r = PdfReader(pdf_path)
+            r = PdfReader(pdf)
             return len(r.pages) > 0
         except Exception:
             return False
 
-    def apply(self, pdf_path: str, secret: str, key: str, position: Optional[str] = None) -> bytes:
-        reader = PdfReader(pdf_path)
+    def add_watermark(self, pdf: str, secret: str, key: str,
+                      position: Optional[str] = None) -> bytes:
+        reader = PdfReader(pdf)
         writer = PdfWriter()
+
         for page in reader.pages:
             w = float(page.mediabox.width)
             h = float(page.mediabox.height)
@@ -51,7 +59,6 @@ class VisibleStampMethod(WatermarkingMethod):
             page.merge_page(stamp_reader.pages[0])
             writer.add_page(page)
 
-        # keep existing metadata and add our field
         meta = dict(reader.metadata or {})
         meta["/TatouSecret"] = secret
         writer.add_metadata(meta)
@@ -60,9 +67,10 @@ class VisibleStampMethod(WatermarkingMethod):
         writer.write(out)
         return out.getvalue()
 
-    def read(self, pdf_path: str, key: str, position: Optional[str] = None) -> Optional[str]:
+    def read_secret(self, pdf: str, key: str,
+                    position: Optional[str] = None) -> Optional[str]:
         try:
-            r = PdfReader(pdf_path)
+            r = PdfReader(pdf)
             meta = r.metadata or {}
             s = meta.get("/TatouSecret")
             return s if isinstance(s, str) and s else None

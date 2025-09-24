@@ -1,4 +1,3 @@
-# lsb_image.py
 from __future__ import annotations
 from io import BytesIO
 from typing import Optional
@@ -7,8 +6,7 @@ from PIL import Image
 from watermarking_method import WatermarkingMethod
 
 def _text_to_bits(s: str) -> str:
-    # UTF-8 bytes → bits with null terminator
-    return "".join(f"{b:08b}" for b in s.encode("utf-8")) + "00000000"
+    return "".join(f"{b:08b}" for b in s.encode("utf-8")) + "00000000"  # null-terminated
 
 def _bits_to_text(bits: str) -> str:
     out = bytearray()
@@ -20,7 +18,6 @@ def _bits_to_text(bits: str) -> str:
     return out.decode("utf-8", errors="ignore")
 
 def _embed_bits_png(img_bytes: bytes, bits: str, channels=(0,1,2)) -> bytes:
-    """Embed bits into RGBA image R,G,B LSBs; return PNG bytes."""
     img = Image.open(BytesIO(img_bytes)).convert("RGBA")
     px = img.load()
     w, h = img.size
@@ -59,29 +56,39 @@ def _extract_bits_png(img_bytes: bytes, max_bits=(1<<18), channels=(0,1,2)) -> s
     for y in range(h):
         for x in range(w):
             r,g,b,a = px[x, y]
-            for idx, val in enumerate((r,g,b,a)):
-                if idx in channels:
-                    bits.append(str(val & 1))
-                    if len(bits) >= max_bits:
-                        return "".join(bits)
+            vals = (r,g,b,a)
+            for idx in channels:
+                bits.append(str(vals[idx] & 1))
+                if len(bits) >= max_bits:
+                    return "".join(bits)
     return "".join(bits)
 
 class LSBImageMethod(WatermarkingMethod):
+    """
+    Invisible LSB watermark embedded in the first image stream found in the PDF.
+    Fragile to heavy recompression/print-scan; fine for short tokens.
+    """
     name = "lsb_image"
-    description = "Invisible LSB watermark hidden in the first image inside the PDF."
+    description = "Hide short secret in LSBs of first embedded image (lossless)."
 
-    def is_applicable(self, pdf_path: str, position: Optional[str] = None) -> bool:
+    # ----- interface required by your base class -----
+
+    def get_usage(self) -> str:
+        return "params: method='lsb_image', key=<str>, secret=<str>, position(optional)"
+
+    def is_watermark_applicable(self, pdf: str, position: Optional[str] = None) -> bool:
         try:
-            doc = fitz.open(pdf_path)
+            doc = fitz.open(pdf)
             ok = any(doc.get_page_images(i) for i in range(len(doc)))
             doc.close()
             return ok
         except Exception:
             return False
 
-    def apply(self, pdf_path: str, secret: str, key: str, position: Optional[str] = None) -> bytes:
+    def add_watermark(self, pdf: str, secret: str, key: str,
+                      position: Optional[str] = None) -> bytes:
         bits = _text_to_bits(secret)
-        doc = fitz.open(pdf_path)
+        doc = fitz.open(pdf)
         replaced = False
 
         for pno in range(len(doc)):
@@ -89,7 +96,7 @@ class LSBImageMethod(WatermarkingMethod):
             for xref, *_ in imgs:
                 base = doc.extract_image(xref)
                 new_png = _embed_bits_png(base["image"], bits)
-                doc.update_stream(xref, new_png)  # replace image stream
+                doc.update_stream(xref, new_png)  # replace the image stream
                 replaced = True
                 break
             if replaced:
@@ -104,8 +111,9 @@ class LSBImageMethod(WatermarkingMethod):
         doc.close()
         return out.getvalue()
 
-    def read(self, pdf_path: str, key: str, position: Optional[str] = None) -> Optional[str]:
-        doc = fitz.open(pdf_path)
+    def read_secret(self, pdf: str, key: str,
+                    position: Optional[str] = None) -> Optional[str]:
+        doc = fitz.open(pdf)
         try:
             for pno in range(len(doc)):
                 imgs = doc.get_page_images(pno)
