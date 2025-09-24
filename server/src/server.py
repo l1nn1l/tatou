@@ -30,7 +30,7 @@ def create_app():
     app = Flask(__name__)
     #enable prometheus metrics
     metrics = PrometheusMetrics(app)
-    metrics.info('tatou_app', 'Tatou watermarking service', version='1.0.0')
+   # metrics.info('tatou_app', 'Tatou watermarking service', version='1.0.0')
 
     # --- Config ---
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-change-me")
