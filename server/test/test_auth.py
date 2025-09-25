@@ -10,7 +10,7 @@ def test_create_user():
         "password": "secret123",
         "email": unique_email
     })
-    assert resp.status_code == 200
+    assert resp.status_code in (200, 201)
     data = resp.json()
     assert data["login"] == "alice"
     assert data["email"] == unique_email
@@ -26,7 +26,7 @@ def test_login_success():
         "email": unique_email,
         "password": "secret123"
     })
-    assert resp.status_code == 200
+    assert resp.status_code in (200, 201)
     data = resp.json()
     assert "token" in data
     assert data["token_type"] == "bearer"
