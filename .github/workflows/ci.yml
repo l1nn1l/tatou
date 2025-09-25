@@ -10,22 +10,6 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
-    services:
-      db:
-        image: mariadb:11.4
-        env:
-          MARIADB_ROOT_PASSWORD: root
-          MARIADB_DATABASE: tatou
-          MARIADB_USER: tatou
-          MARIADB_PASSWORD: tatou
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mariadb-admin ping -h 127.0.0.1 -u root --password=root"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -40,15 +24,16 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ./server[dev]
 
-      - name: Build and start server
+      - name: Build and start stack
         run: |
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d db server
-          sleep 10  # give it time to boot
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml --env-file .env.ci up -d db server
+          # Give containers time to initialize
+          sleep 15
 
       - name: Wait for server healthcheck
         run: |
-          for i in {1..10}; do
-            if curl -s http://localhost:5000/healthz; then
+          for i in {1..12}; do
+            if curl -sf http://localhost:5000/healthz; then
               echo "Server is ready!"
               break
             fi
@@ -57,4 +42,6 @@ jobs:
           done
 
       - name: Run tests with coverage
+        env:
+          BASE_URL: http://localhost:5000
         run: pytest --cov=tatou --cov-report=xml
