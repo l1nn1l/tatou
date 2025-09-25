@@ -1,0 +1,19 @@
+# docker-compose.ci.yml
+# Overrides for GitHub Actions CI
+version: "3.9"
+
+services:
+  db:
+    # Don't expose 3306 to the GitHub runner host
+    ports: []
+    # Disable healthcheck in CI (MariaDB is sometimes too slow to respond)
+    healthcheck:
+      disable: true
+
+  server:
+    # Expose port 5000 as 8000 inside CI (so tests can reach it via localhost:8000)
+    ports:
+      - "8000:5000"
+    depends_on:
+      db:
+        condition: service_started
