@@ -1,5 +1,7 @@
 import os
 import io
+import base64
+import json
 import hashlib
 import datetime as dt
 from pathlib import Path
@@ -12,6 +14,8 @@ from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import IntegrityError
+
+from prometheus_flask_exporter import PrometheusMetrics
 
 import pickle as _std_pickle
 try:
@@ -26,6 +30,9 @@ from watermarking_method import WatermarkingMethod
 
 def create_app():
     app = Flask(__name__)
+    #enable prometheus metrics
+    metrics = PrometheusMetrics(app)
+   # metrics.info('tatou_app', 'Tatou watermarking service', version='1.0.0')
 
     # --- Config ---
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-change-me")
@@ -809,6 +816,94 @@ def create_app():
             "method": method,
             "position": position
         }), 201
+
+    # naive nonce storage (replace with DB/session in production)
+    RMAP_SESSIONS = {}
+
+    @app.post("/api/rmap-initiate")
+    def rmap_initiate():
+        """
+        Start RMAP handshake.
+        Body: { "payload": <ASCII_armored_base64> }
+        Should decrypt to: { "nonceClient": <u64>, "identity": <string> }
+        Returns: { "payload": <ASCII_armored_base64> }
+        Encrypted form of { "nonceClient": <u64>, "nonceServer": <u64> }
+        """
+
+        payload = request.get_json(silent=True) or {}
+        b64_payload = payload.get("payload")
+        if not b64_payload:
+            return jsonify({"error": "payload is required"}), 400
+
+        try:
+            decrypted = json.loads(base64.b64decode(b64_payload).decode("utf-8"))
+        except Exception as e:
+            return jsonify({"error": f"invalid payload encoding: {e}"}), 400
+
+        nonce_client = decrypted.get("nonceClient")
+        identity = decrypted.get("identity")
+        if nonce_client is None or not identity:
+            return jsonify({"error": "nonceClient and identity required"}), 400
+
+        # TODO: validate identity against known public keys
+        # For now, accept all identities
+
+        # generate server nonce
+        nonce_server = int.from_bytes(os.urandom(8), "big")
+
+        # store session (in memory; replace with DB if needed)
+        RMAP_SESSIONS[identity] = {
+            "nonceClient": nonce_client,
+            "nonceServer": nonce_server,
+        }
+
+        response = {"nonceClient": nonce_client, "nonceServer": nonce_server}
+        encoded = base64.b64encode(json.dumps(response).encode("utf-8")).decode("ascii")
+        return jsonify({"payload": encoded}), 200
+
+
+    @app.post("/api/rmap-get-link")
+    def rmap_get_link():
+        """
+        Finalize RMAP handshake.
+        Body: { "payload": <ASCII_armored_base64> }
+        Should decrypt to: { "nonceServer": <u64> }
+        Returns: { "payload": <ASCII_armored_base64> }
+        Encrypted form of: { "result": "<32-hex NonceClient||NonceServer>" }
+        """
+
+        payload = request.get_json(silent=True) or {}
+        b64_payload = payload.get("payload")
+        if not b64_payload:
+            return jsonify({"error": "payload is required"}), 400
+
+        try:
+            decrypted = json.loads(base64.b64decode(b64_payload).decode("utf-8"))
+        except Exception as e:
+            return jsonify({"error": f"invalid payload encoding: {e}"}), 400
+
+        nonce_server = decrypted.get("nonceServer")
+        if nonce_server is None:
+            return jsonify({"error": "nonceServer required"}), 400
+
+        # find session by matching nonceServer
+        identity, session = None, None
+        for ident, sess in RMAP_SESSIONS.items():
+            if sess["nonceServer"] == nonce_server:
+                identity, session = ident, sess
+                break
+
+        if not session:
+            return jsonify({"error": "unknown or expired nonceServer"}), 403
+
+        nonce_client = session["nonceClient"]
+
+        # result = concatenation of client and server nonce as hex
+        result = f"{nonce_client:016x}{nonce_server:016x}"
+
+        response = {"result": result}
+        encoded = base64.b64encode(json.dumps(response).encode("utf-8")).decode("ascii")
+        return jsonify({"payload": encoded}), 200
 
     return app
     
