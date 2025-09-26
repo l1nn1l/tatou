@@ -77,25 +77,31 @@ def _embed_bits_png(img_bytes: bytes, bits: str, channels=(0, 1, 2)) -> bytes:
 
 def _extract_bits_png(img_bytes: bytes, max_bits=(1 << 20)) -> str:
     """
-    Read LSBs from R,G,B. Expect 32-bit MAGIC + 32-bit length + payload.
+    Read LSBs from R,G,B. Recognize MAGIC+LEN header and stop exactly at the end
+    of the payload. If MAGIC doesn't match, return "" to signal "not found here".
     """
     img = Image.open(BytesIO(img_bytes)).convert("RGBA")
     px = img.load()
     w, h = img.size
+
     bits = []
-    target = None
+    target = None  # total bits to read once header is known
 
     for y in range(h):
         for x in range(w):
             r, g, b, a = px[x, y]
-            for v in (r, g, b):
+            for v in (r, g, b):           # RGB only
                 bits.append(str(v & 1))
                 n = len(bits)
 
-                if target is None and n >= 64:
-                    magic = int("".join(bits[0:32]), 2).to_bytes(4, "big")
+                # Once we have MAGIC (32) + LEN (32), compute target
+                if n == 32:
+                    # check MAGIC early; if not ours, bail out
+                    magic = int("".join(bits[:32]), 2).to_bytes(4, "big")
                     if magic != MAGIC:
-                        return ""  # not our watermark
+                        return ""          # this image doesn't carry our mark
+
+                if n >= 64 and target is None:
                     length = int("".join(bits[32:64]), 2)
                     target = 64 + length * 8
 
@@ -103,9 +109,11 @@ def _extract_bits_png(img_bytes: bytes, max_bits=(1 << 20)) -> str:
                     return "".join(bits[:target])
 
                 if n >= max_bits:
-                    return "".join(bits)
+                    # safety guard; but if header known and still not enough, stop anyway
+                    return "".join(bits if target is None else bits[:min(n, target)])
 
-    return "".join(bits if target is None else bits[:target])
+    # end of image
+    return "".join(bits if target is None else bits[:min(len(bits), target)])
 
 
 
