@@ -13,7 +13,9 @@ dependencies = [
     "rmap @ git+https://github.com/nharrand/RMAP-Server.git@v1.0.0",
     "prometheus-flask-exporter>=0.23.0",
     "requests>=2.31.0",
-    "pikepdf>=9.0.0"         # <-- NYTT: för XMP/metadata-arbete
+    "pikepdf>=9.0.0",
+	  "numpy>=1.26",
+  	"pillow>=10.4",
 ]
 
 [project.optional-dependencies]
