@@ -4,16 +4,17 @@ version = "0.0.1"
 description = "PDF Watermarking platform"
 requires-python = ">=3.11"
 dependencies = [
-	"PyMuPDF>=1.21.1",
-	"Flask==3.0.3",
-	"gunicorn==21.2.0",
-	"PyMySQL==1.1.2",
-	"SQLAlchemy==2.0.43",
-	"dill==0.4.0",
-	"rmap @ git+https://github.com/nharrand/RMAP-Server.git@v1.0.0",
-	"prometheus-flask-exporter>=0.23.0",
-	"requests>=2.31.0",
-	"numpy>=1.26",
+    "PyMuPDF>=1.21.1",
+    "Flask==3.0.3",
+    "gunicorn==21.2.0",
+    "PyMySQL==1.1.2",
+    "SQLAlchemy==2.0.43",
+    "dill==0.4.0",
+    "rmap @ git+https://github.com/nharrand/RMAP-Server.git@v1.0.0",
+    "prometheus-flask-exporter>=0.23.0",
+    "requests>=2.31.0",
+    "pikepdf>=9.0.0",
+	  "numpy>=1.26",
   	"pillow>=10.4",
 ]
 
@@ -22,7 +23,7 @@ dev = [
     "pytest>=7.0.0",
     "coverage>=7.0.0",
     "ruff>=0.6.0",
-	"pytest-cov>=4.0.0"
+    "pytest-cov>=4.0.0"
 ]
 
 [tool.pytest.ini_options]

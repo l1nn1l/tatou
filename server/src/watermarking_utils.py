@@ -43,6 +43,7 @@ from watermarking_method import (
 )
 from add_after_eof import AddAfterEOF
 from unsafe_bash_bridge_append_eof import UnsafeBashBridgeAppendEOF
+from plugins.xmp_perpage import XmpPerPageMethod  
 from watermarking_lsb import LSBWatermark
 
 # --------------------
@@ -52,7 +53,8 @@ from watermarking_lsb import LSBWatermark
 METHODS: Dict[str, WatermarkingMethod] = {
     AddAfterEOF.name: AddAfterEOF(),
     UnsafeBashBridgeAppendEOF.name: UnsafeBashBridgeAppendEOF(),
-    LSBWatermark.name: LSBWatermark(), #Linn
+    XmpPerPageMethod.name: XmpPerPageMethod(),     
+    LSBWatermark.name: LSBWatermark(), 
 }
 """Registry of available watermarking methods.
 

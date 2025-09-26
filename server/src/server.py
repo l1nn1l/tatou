@@ -771,26 +771,90 @@ def create_app():
         if not method or not isinstance(key, str):
             return jsonify({"error": "method, and key are required"}), 400
 
-        # lookup the document; FIXME enforce ownership
+
+# Change1
+        # Optional: choose a specific version to read
+        version_id = payload.get("version_id")
+        link = payload.get("link")
+
         try:
             with get_engine().connect() as conn:
-                row = conn.execute(
+                # Enforce ownership on the base document
+                doc_row = conn.execute(
                     text("""
-                        SELECT id, name, path
-                        FROM Documents
-                        WHERE id = :id
+                        SELECT d.id, d.name
+                        FROM Documents d
+                        WHERE d.id = :id AND d.ownerid = :uid
+                        LIMIT 1
                     """),
-                    {"id": doc_id},
+                    {"id": doc_id, "uid": int(g.user["id"])},
                 ).first()
+                if not doc_row:
+                    return jsonify({"error": "document not found"}), 404
+
+                # Decide which file to read:
+                # 1) explicit version_id
+                vrow = None
+                if version_id is not None:
+                    vrow = conn.execute(
+                        text("""
+                            SELECT v.id, v.link, v.path
+                            FROM Versions v
+                            JOIN Documents d ON d.id = v.documentid
+                            WHERE v.id = :vid AND d.id = :did AND d.ownerid = :uid
+                            LIMIT 1
+                        """),
+                        {"vid": int(version_id), "did": doc_id, "uid": int(g.user["id"])},
+                    ).first()
+                # 2) explicit link
+                if vrow is None and link:
+                    vrow = conn.execute(
+                        text("""
+                            SELECT v.id, v.link, v.path
+                            FROM Versions v
+                            JOIN Documents d ON d.id = v.documentid
+                            WHERE v.link = :link AND d.id = :did AND d.ownerid = :uid
+                            LIMIT 1
+                        """),
+                        {"link": str(link), "did": doc_id, "uid": int(g.user["id"])},
+                    ).first()
+                # 3) otherwise: latest version for this document
+                if vrow is None:
+                    vrow = conn.execute(
+                        text("""
+                            SELECT v.id, v.link, v.path
+                            FROM Versions v
+                            JOIN Documents d ON d.id = v.documentid
+                            WHERE d.id = :did AND d.ownerid = :uid
+                            ORDER BY v.id DESC
+                            LIMIT 1
+                        """),
+                        {"did": doc_id, "uid": int(g.user["id"])},
+                    ).first()
+
+                if not vrow:
+                    # No versions exist: fall back to the original document (likely no WM)
+                    base_row = conn.execute(
+                        text("""
+                            SELECT d.path
+                            FROM Documents d
+                            WHERE d.id = :did AND d.ownerid = :uid
+                            LIMIT 1
+                        """),
+                        {"did": doc_id, "uid": int(g.user["id"])},
+                    ).first()
+                    if not base_row:
+                        return jsonify({"error": "document not found"}), 404
+                    chosen_path = base_row.path
+                else:
+                    chosen_path = vrow.path
         except Exception as e:
             return jsonify({"error": f"database error: {str(e)}"}), 503
 
-        if not row:
-            return jsonify({"error": "document not found"}), 404
-
         # resolve path safely under STORAGE_DIR
         storage_root = Path(app.config["STORAGE_DIR"]).resolve()
-        file_path = Path(row.path)
+        file_path = Path(chosen_path)
+# change 1
         if not file_path.is_absolute():
             file_path = storage_root / file_path
         file_path = file_path.resolve()
@@ -815,7 +879,7 @@ def create_app():
             "secret": secret,
             "method": method,
             "position": position
-        }), 201
+        }), 200
 
     # naive nonce storage (replace with DB/session in production)
     RMAP_SESSIONS = {}
