@@ -139,56 +139,77 @@ class LSBImageMethod(WatermarkingMethod):
         except Exception:
             return False
 
-    def add_watermark(self, pdf: PdfSource, secret: str, key: str, position: str | None = None,) -> bytes:
-        bits = _text_to_bits(secret)
-        doc = fitz.open(pdf)
+    def add_watermark(
+    self, pdf: PdfSource, secret: str, key: str, position: str | None = None
+) -> bytes:
+    bits = _text_to_bits(secret)
+    doc = fitz.open(pdf)
+    try:
         replaced = False
 
-        try:
-            for pno in range(len(doc)):
-                for xref, *_ in doc.get_page_images(pno):
-                    base = doc.extract_image(xref)
-                    if not base or "image" not in base:
-                        continue
+        for pno in range(len(doc)):
+            for xref, *_ in doc.get_page_images(pno):
+                base = doc.extract_image(xref)
+                if not base or "image" not in base:
+                    continue
 
-                    raw = base["image"]
+                # Load with Pillow; skip encodings Pillow can't decode
+                try:
+                    pil = Image.open(BytesIO(base["image"])).convert("RGBA")
+                    pil.load()
+                except Exception:
+                    continue
 
-                    # Try to open with Pillow; skip images Pillow can’t read (JBIG2/CCITT)
-                    try:
-                        Image.open(BytesIO(raw)).load()
-                    except Exception:
-                        continue
+                # --- embed bits directly into the PIL image pixels ---
+                w, h = pil.size
+                capacity = w * h * 3  # we will write into R,G,B LSBs
+                if len(bits) > capacity:
+                    # not enough capacity; try next image
+                    continue
 
-                    # Embed our bits into an RGBA PNG (lossless)
-                    new_png = _embed_bits_png(raw, bits)
-
-                    # Replace image stream. Some encodings don’t like stream swap;
-                    # try update_stream first, then fall back to Pixmap route.
-                    try:
-                        doc.update_stream(xref, new_png)
-                        replaced = True
-                    except Exception:
-                        # Fallback: replace via Pixmap (more compatible)
-                        try:
-                            pix = fitz.Pixmap(new_png)  # PyMuPDF can read PNG bytes directly
-                            doc.update_image(xref, pix)
-                            replaced = True
-                        except Exception:
-                            continue  # try next image
-
-                    if replaced:
+                px = pil.load()
+                it = iter(bits)
+                done = False
+                for y in range(h):
+                    for x in range(w):
+                        r, g, b, a = px[x, y]
+                        for idx in (0, 1, 2):  # R,G,B only
+                            try:
+                                bit = next(it)
+                            except StopIteration:
+                                done = True
+                                break
+                            if idx == 0:
+                                r = (r & ~1) | int(bit)
+                            elif idx == 1:
+                                g = (g & ~1) | int(bit)
+                            else:
+                                b = (b & ~1) | int(bit)
+                        px[x, y] = (r, g, b, a)
+                        if done:
+                            break
+                    if done:
                         break
-                if replaced:
-                    break
 
-            if not replaced:
-                raise RuntimeError("No embeddable image found (or unsupported image encoding)")
+                # --- build a Pixmap from the raw RGBA samples and update the image ---
+                rgba = pil.tobytes()              # raw pixel bytes
+                pix = fitz.Pixmap(fitz.csRGBA, w, h, rgba)
+                doc.update_image(xref, pix)       # robust replacement
+                replaced = True
+                break  # stop after first successful replacement
 
-            out = BytesIO()
-            doc.save(out)
-            return out.getvalue()
-        finally:
-            doc.close()
+            if replaced:
+                break
+
+        if not replaced:
+            raise RuntimeError("No embeddable RGB image with enough capacity")
+
+        out = BytesIO()
+        doc.save(out)
+        return out.getvalue()
+    finally:
+        doc.close()
+
 
 
     def read_secret(self, pdf: PdfSource, key: str) -> str:
