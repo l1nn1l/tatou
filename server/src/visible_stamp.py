@@ -61,18 +61,27 @@ class VisibleStampMethod(WatermarkingMethod):
 
         meta = dict(reader.metadata or {})
         meta["/TatouSecret"] = secret
+        meta["TatouSecret"] = secret       # tolerance for readers/writers that drop the slash
         writer.add_metadata(meta)
+
 
         out = BytesIO()
         writer.write(out)
         return out.getvalue()
 
-    def read_secret(self, pdf: str, key: str,
-                    position: Optional[str] = None) -> Optional[str]:
+    def read_secret(self, pdf: str, key: str, position: Optional[str] = None) -> Optional[str]:
         try:
             r = PdfReader(pdf)
             meta = r.metadata or {}
-            s = meta.get("/TatouSecret")
-            return s if isinstance(s, str) and s else None
+
+            # handle both styles and odd objects
+            val = (meta.get("/TatouSecret")
+                or meta.get("TatouSecret")
+                or meta.get("tatou_secret"))
+            if val is None:
+                return None
+
+            s = str(val).strip()
+            return s if s else None
         except Exception:
             return None
