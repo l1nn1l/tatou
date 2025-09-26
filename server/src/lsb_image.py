@@ -3,38 +3,62 @@ from io import BytesIO
 from typing import Optional
 import fitz  # PyMuPDF
 from PIL import Image
-from watermarking_method import WatermarkingMethod
+from watermarking_method import WatermarkingMethod, PdfSource
+
+def _bytes_to_bits(b: bytes) -> str:
+    return "".join(f"{byte:08b}" for byte in b)
+
+def _bits_to_bytes(bits: str) -> bytes:
+    # consume in 8-bit chunks
+    out = bytearray()
+    for i in range(0, len(bits) - 7, 8):
+        out.append(int(bits[i:i+8], 2))
+    return bytes(out)
+
+MAGIC = b"LSB1"  # 4-byte marker
 
 def _text_to_bits(s: str) -> str:
-    return "".join(f"{b:08b}" for b in s.encode("utf-8")) + "00000000"  # null-terminated
+    payload = s.encode("utf-8")
+    header = MAGIC + len(payload).to_bytes(4, "big")
+    data = header + payload
+    return "".join(f"{byte:08b}" for byte in data)
 
 def _bits_to_text(bits: str) -> str:
-    """Rebuild bytes from bits, stop at first null (0x00), then UTF-8 decode."""
-    out = bytearray()
-    # guard against short tails
-    for i in range(0, len(bits) - 7, 8):
-        b = int(bits[i:i+8], 2)
-        if b == 0:                  # null terminator
-            break
-        out.append(b)
-    return out.decode("utf-8", errors="ignore")
+    # need at least magic (32) + length (32) bits
+    if len(bits) < 64:
+        return ""
+    magic = int(bits[0:32], 2).to_bytes(4, "big")
+    if magic != MAGIC:
+        return ""
+    n = int(bits[32:64], 2)
+    need = 64 + n * 8
+    if len(bits) < need:
+        return ""
+    payload_bits = bits[64:need]
+    b = bytearray()
+    for i in range(0, len(payload_bits), 8):
+        b.append(int(payload_bits[i:i+8], 2))
+    try:
+        return bytes(b).decode("utf-8")
+    except UnicodeDecodeError:
+        return ""
 
 
-def _embed_bits_png(img_bytes: bytes, bits: str, channels=(0,1,2)) -> bytes:
+def _embed_bits_png(img_bytes: bytes, bits: str, channels=(0, 1, 2)) -> bytes:
     img = Image.open(BytesIO(img_bytes)).convert("RGBA")
     px = img.load()
     w, h = img.size
-    capacity = w * h * len(channels)
+    capacity = w * h * len(channels)  # bits
     if len(bits) > capacity:
-        raise ValueError("Secret too large for first image capacity")
+        raise ValueError(f"Secret too large for image capacity ({len(bits)} > {capacity})")
 
     it = iter(bits)
     done = False
     for y in range(h):
         for x in range(w):
-            r,g,b,a = px[x, y]
-            vals = [r,g,b,a]
-            for idx in channels:
+            r, g, b, a = px[x, y]
+            vals = [r, g, b, a]
+            for idx in channels:      # write into R,G,B LSBs
                 try:
                     bit = next(it)
                 except StopIteration:
@@ -48,23 +72,41 @@ def _embed_bits_png(img_bytes: bytes, bits: str, channels=(0,1,2)) -> bytes:
             break
 
     out = BytesIO()
-    img.save(out, format="PNG")  # lossless
+    img.save(out, format="PNG")  # keep it lossless
     return out.getvalue()
 
-def _extract_bits_png(img_bytes: bytes, max_bits=(1 << 18)) -> str:
-    """Extract LSBs from RGB channels only; return a bitstring."""
+def _extract_bits_png(img_bytes: bytes, max_bits=(1 << 20)) -> str:
+    """
+    Read LSBs from R,G,B. Expect 32-bit MAGIC + 32-bit length + payload.
+    """
     img = Image.open(BytesIO(img_bytes)).convert("RGBA")
     px = img.load()
     w, h = img.size
     bits = []
+    target = None
+
     for y in range(h):
         for x in range(w):
             r, g, b, a = px[x, y]
-            for v in (r, g, b):        # ignore alpha
+            for v in (r, g, b):
                 bits.append(str(v & 1))
-                if len(bits) >= max_bits:
+                n = len(bits)
+
+                if target is None and n >= 64:
+                    magic = int("".join(bits[0:32]), 2).to_bytes(4, "big")
+                    if magic != MAGIC:
+                        return ""  # not our watermark
+                    length = int("".join(bits[32:64]), 2)
+                    target = 64 + length * 8
+
+                if target is not None and n >= target:
+                    return "".join(bits[:target])
+
+                if n >= max_bits:
                     return "".join(bits)
-    return "".join(bits)
+
+    return "".join(bits if target is None else bits[:target])
+
 
 
 class LSBImageMethod(WatermarkingMethod):
@@ -89,8 +131,7 @@ class LSBImageMethod(WatermarkingMethod):
         except Exception:
             return False
 
-    def add_watermark(self, pdf: str, secret: str, key: str,
-                    position: Optional[str] = None) -> bytes:
+    def add_watermark(self, pdf: PdfSource, secret: str, key: str, position: str | None = None,) -> bytes:
         bits = _text_to_bits(secret)
         doc = fitz.open(pdf)
         replaced = False
@@ -142,27 +183,24 @@ class LSBImageMethod(WatermarkingMethod):
             doc.close()
 
 
-    def read_secret(self, pdf: str, key: str, position: Optional[str] = None) -> Optional[str]:
-            """Scan images in the PDF; return the embedded UTF-8 secret or None."""
-            doc = fitz.open(pdf)
-            try:
-                for pno in range(len(doc)):
-                    for xref, *_ in doc.get_page_images(pno):
-                        base = doc.extract_image(xref)
-                        if not base or "image" not in base:
-                            continue
-
-                        raw = base["image"]
-                        # Skip images Pillow can't decode cleanly (JBIG2/CCITT/etc.)
-                        try:
-                            Image.open(BytesIO(raw)).load()
-                        except Exception:
-                            continue
-
-                        bits = _extract_bits_png(raw)
-                        text = _bits_to_text(bits)
-                        if text:          # non-empty after decoding
-                            return text
-                return None
-            finally:
-                doc.close()
+    def read_secret(self, pdf: PdfSource, key: str) -> str:
+    # must return str (use "" when not found)
+        doc = fitz.open(pdf)
+        try:
+            for pno in range(len(doc)):
+                for xref, *_ in doc.get_page_images(pno):
+                    base = doc.extract_image(xref)
+                    if not base or "image" not in base:
+                        continue
+                    raw = base["image"]
+                    try:
+                        Image.open(BytesIO(raw)).load()
+                    except Exception:
+                        continue
+                    bits = _extract_bits_png(raw)
+                    text = _bits_to_text(bits)
+                    if text:
+                        return text
+            return ""  # ← return empty string, not None
+        finally:
+            doc.close()
