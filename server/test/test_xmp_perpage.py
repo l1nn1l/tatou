@@ -7,7 +7,7 @@ from plugins.xmp_perpage import XmpPerPageMethod
 from watermarking_method import InvalidKeyError
 
 # Test-PDF i repo-roten ligger i containern som /app/softsecPDF.pdf
-SAMPLE_PDF = Path(__file__).resolve().parents[1] / "softsecPDF.pdf"
+SAMPLE_PDF = Path(__file__).resolve().parents[1] / "sample.pdf"
 
 def _read_bytes(p: Path) -> bytes:
     with open(p, "rb") as fh:
