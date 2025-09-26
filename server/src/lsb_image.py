@@ -9,11 +9,12 @@ def _text_to_bits(s: str) -> str:
     return "".join(f"{b:08b}" for b in s.encode("utf-8")) + "00000000"  # null-terminated
 
 def _bits_to_text(bits: str) -> str:
-    """Convert bitstring back to UTF-8 text, stopping at null byte."""
+    """Rebuild bytes from bits, stop at first null (0x00), then UTF-8 decode."""
     out = bytearray()
-    for i in range(0, len(bits) - 7, 8):  # consume 8 bits at a time
+    # guard against short tails
+    for i in range(0, len(bits) - 7, 8):
         b = int(bits[i:i+8], 2)
-        if b == 0:  # null terminator
+        if b == 0:                  # null terminator
             break
         out.append(b)
     return out.decode("utf-8", errors="ignore")
@@ -50,7 +51,8 @@ def _embed_bits_png(img_bytes: bytes, bits: str, channels=(0,1,2)) -> bytes:
     img.save(out, format="PNG")  # lossless
     return out.getvalue()
 
-def _extract_bits_png(img_bytes: bytes, max_bits=(1<<18), channels=(0,1,2)) -> str:
+def _extract_bits_png(img_bytes: bytes, max_bits=(1 << 18)) -> str:
+    """Extract LSBs from RGB channels only; return a bitstring."""
     img = Image.open(BytesIO(img_bytes)).convert("RGBA")
     px = img.load()
     w, h = img.size
@@ -58,9 +60,8 @@ def _extract_bits_png(img_bytes: bytes, max_bits=(1<<18), channels=(0,1,2)) -> s
     for y in range(h):
         for x in range(w):
             r, g, b, a = px[x, y]
-            vals = (r, g, b)  # ignore alpha
-            for idx in range(len(vals)):
-                bits.append(str(vals[idx] & 1))
+            for v in (r, g, b):        # ignore alpha
+                bits.append(str(v & 1))
                 if len(bits) >= max_bits:
                     return "".join(bits)
     return "".join(bits)
@@ -88,71 +89,80 @@ class LSBImageMethod(WatermarkingMethod):
         except Exception:
             return False
 
-def add_watermark(self, pdf: str, secret: str, key: str,
-                  position: Optional[str] = None) -> bytes:
-    bits = _text_to_bits(secret)
-    doc = fitz.open(pdf)
-    replaced = False
+    def add_watermark(self, pdf: str, secret: str, key: str,
+                    position: Optional[str] = None) -> bytes:
+        bits = _text_to_bits(secret)
+        doc = fitz.open(pdf)
+        replaced = False
 
-    try:
-        for pno in range(len(doc)):
-            for xref, *_ in doc.get_page_images(pno):
-                base = doc.extract_image(xref)
-                if not base or "image" not in base:
-                    continue
+        try:
+            for pno in range(len(doc)):
+                for xref, *_ in doc.get_page_images(pno):
+                    base = doc.extract_image(xref)
+                    if not base or "image" not in base:
+                        continue
 
-                raw = base["image"]
+                    raw = base["image"]
 
-                # Try to open with Pillow; skip images Pillow can’t read (JBIG2/CCITT)
-                try:
-                    Image.open(BytesIO(raw)).load()
-                except Exception:
-                    continue
-
-                # Embed our bits into an RGBA PNG (lossless)
-                new_png = _embed_bits_png(raw, bits)
-
-                # Replace image stream. Some encodings don’t like stream swap;
-                # try update_stream first, then fall back to Pixmap route.
-                try:
-                    doc.update_stream(xref, new_png)
-                    replaced = True
-                except Exception:
-                    # Fallback: replace via Pixmap (more compatible)
+                    # Try to open with Pillow; skip images Pillow can’t read (JBIG2/CCITT)
                     try:
-                        pix = fitz.Pixmap(new_png)  # PyMuPDF can read PNG bytes directly
-                        doc.update_image(xref, pix)
+                        Image.open(BytesIO(raw)).load()
+                    except Exception:
+                        continue
+
+                    # Embed our bits into an RGBA PNG (lossless)
+                    new_png = _embed_bits_png(raw, bits)
+
+                    # Replace image stream. Some encodings don’t like stream swap;
+                    # try update_stream first, then fall back to Pixmap route.
+                    try:
+                        doc.update_stream(xref, new_png)
                         replaced = True
                     except Exception:
-                        continue  # try next image
+                        # Fallback: replace via Pixmap (more compatible)
+                        try:
+                            pix = fitz.Pixmap(new_png)  # PyMuPDF can read PNG bytes directly
+                            doc.update_image(xref, pix)
+                            replaced = True
+                        except Exception:
+                            continue  # try next image
 
+                    if replaced:
+                        break
                 if replaced:
                     break
-            if replaced:
-                break
 
-        if not replaced:
-            raise RuntimeError("No embeddable image found (or unsupported image encoding)")
+            if not replaced:
+                raise RuntimeError("No embeddable image found (or unsupported image encoding)")
 
-        out = BytesIO()
-        doc.save(out)
-        return out.getvalue()
-    finally:
-        doc.close()
+            out = BytesIO()
+            doc.save(out)
+            return out.getvalue()
+        finally:
+            doc.close()
 
 
-def read_secret(self, pdf: str, key: str,
-                position: Optional[str] = None) -> Optional[str]:
-    doc = fitz.open(pdf)
-    try:
-        for pno in range(len(doc)):
-            imgs = doc.get_page_images(pno)
-            for xref, *_ in imgs:
-                base = doc.extract_image(xref)
-                bits = _extract_bits_png(base["image"])
-                txt = _bits_to_text(bits)
-                if txt:
-                    return txt
-        return None
-    finally:
-        doc.close()
+    def read_secret(self, pdf: str, key: str, position: Optional[str] = None) -> Optional[str]:
+            """Scan images in the PDF; return the embedded UTF-8 secret or None."""
+            doc = fitz.open(pdf)
+            try:
+                for pno in range(len(doc)):
+                    for xref, *_ in doc.get_page_images(pno):
+                        base = doc.extract_image(xref)
+                        if not base or "image" not in base:
+                            continue
+
+                        raw = base["image"]
+                        # Skip images Pillow can't decode cleanly (JBIG2/CCITT/etc.)
+                        try:
+                            Image.open(BytesIO(raw)).load()
+                        except Exception:
+                            continue
+
+                        bits = _extract_bits_png(raw)
+                        text = _bits_to_text(bits)
+                        if text:          # non-empty after decoding
+                            return text
+                return None
+            finally:
+                doc.close()
