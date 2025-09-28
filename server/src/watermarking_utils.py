@@ -35,7 +35,6 @@ import io
 import json
 import os
 import re
-from visible_stamp import VisibleStampMethod #LL call for new watermarking method
 from lsb_image import LSBImageMethod #LL call for new watermarking method
 
 from watermarking_method import (
@@ -54,7 +53,6 @@ from unsafe_bash_bridge_append_eof import UnsafeBashBridgeAppendEOF
 METHODS: Dict[str, WatermarkingMethod] = {
     AddAfterEOF.name: AddAfterEOF(),
     UnsafeBashBridgeAppendEOF.name: UnsafeBashBridgeAppendEOF(),
-    VisibleStampMethod.name: VisibleStampMethod(), 
     LSBImageMethod.name: LSBImageMethod()
 }
 """Registry of available watermarking methods.
@@ -107,7 +105,7 @@ def is_watermarking_applicable(
     method: str | WatermarkingMethod,
     pdf: PdfSource,
     position: str | None = None,
-) -> bytes:
+) -> bool:
     """Apply a watermark using the specified method and return new PDF bytes."""
     m = get_method(method)
     return m.is_watermark_applicable(pdf=pdf, position=position)

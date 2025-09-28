@@ -24,70 +24,9 @@ def _bits_to_bytes(bits: str) -> bytes:
     return bytes(int(bits[i:i+8], 2) for i in range(0, len(bits) - 7, 8))
 
 
-def _text_to_bits(s: str) -> str:
-    payload = s.encode("utf-8")
-    header = MAGIC + len(payload).to_bytes(4, "big")
-    data = header + payload
-    return _bytes_to_bits(data)
-
-def _bits_to_text(bits: str) -> str:
-    # need at least magic (32) + length (32) bits
-    if len(bits) < 64:
-        return ""
-    magic = int(bits[0:32], 2).to_bytes(4, "big")
-    if magic != MAGIC:
-        return ""
-    n = int(bits[32:64], 2)
-    need = 64 + n * 8
-    if len(bits) < need:
-        return ""
-    payload_bits = bits[64:need]
-    try:
-        return _bits_to_bytes(payload_bits).decode("utf-8")
-    except UnicodeDecodeError:
-        return ""
-
-def _extract_bits_png(img_bytes: bytes, max_bits=(1 << 20)) -> str:
-    """
-    Read LSBs from R,G,B. Recognize MAGIC+LEN header and stop exactly at the end
-    of the payload. If MAGIC doesn't match, return "" to signal 'not found here'.
-    """
-    img = Image.open(BytesIO(img_bytes)).convert("RGBA")
-    px = img.load()
-    w, h = img.size
-
-    bits = []
-    target = None  # total bits to read once header is known
-
-    for y in range(h):
-        for x in range(w):
-            r, g, b, a = px[x, y]
-            for v in (r, g, b):  # RGB only
-                bits.append(str(v & 1))
-                n = len(bits)
-
-                if n == 32:
-                    magic = int("".join(bits[:32]), 2).to_bytes(4, "big")
-                    if magic != MAGIC:
-                        return ""  # not our payload
-
-                if n >= 64 and target is None:
-                    length = int("".join(bits[32:64]), 2)
-                    target = 64 + length * 8
-
-                if target is not None and n >= target:
-                    return "".join(bits[:target])
-
-                if n >= max_bits:
-                    return "".join(bits if target is None else bits[:min(n, target)])
-
-    return "".join(bits if target is None else bits[:min(len(bits), target)])
-
 class LSBImageMethod(WatermarkingMethod):
-    """
-    Invisible LSB watermark embedded in the first image stream found in the PDF.
-    Fragile to heavy recompression/print-scan; fine for short tokens.
-    """
+    """Authenticated LSB steganography for PDF images (lossless)."""
+
     name = "lsb_image"
     description = "Hide short secret in LSBs of first embedded image (lossless)."
 
@@ -161,12 +100,12 @@ class LSBImageMethod(WatermarkingMethod):
                             break
 
                     # ---- build PNG bytes and / or a pixmap ----
-                    # (We already modified 'pil' pixels with the secret)
+                    # already modified 'pil' pixels with the secret
                     emb_png_bio = BytesIO()
                     pil.save(emb_png_bio, format="PNG")          # lossless, preserves LSBs
                     emb_png = emb_png_bio.getvalue()
 
-                    # also try a Pixmap path (some builds prefer this)
+                    # also try a Pixmap path bc some builds prefer this
                     rgb = pil.convert("RGB")
                     samples = rgb.tobytes()
                     w, h = rgb.size

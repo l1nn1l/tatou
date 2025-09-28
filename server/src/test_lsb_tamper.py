@@ -14,14 +14,14 @@ def test_tamper_mac_fails():
     pdf = _pdf_with_png(size=(128, 128))
     wm = m.add_watermark(pdf, secret, key)
 
-    # Open the watermarked PDF and get the newest image (your method inserts / replaces last)
+    # Open the watermarked PDF and get the newest image (the method inserts / replaces last)
     doc = fitz.open(stream=wm)
     try:
         page = doc[0]
         xref = page.get_images()[-1][0]
         base = doc.extract_image(xref)
 
-        # Load the image and flip ONE bit at the start of the MAC (keep header intact)
+        # Load the image and flip one bit at the start of the MAC (keep header intact)
         pil = Image.open(io.BytesIO(base["image"])).convert("RGBA"); pil.load()
         w, h = pil.size
 
@@ -55,7 +55,7 @@ def test_tamper_mac_fails():
     finally:
         doc.close()
 
-    # Now the MAC should fail → InvalidKeyError
+    # The MAC should fail → InvalidKeyError
     try:
         m.read_secret(tampered, key)
         assert False, "Expected InvalidKeyError"
