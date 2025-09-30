@@ -44,6 +44,8 @@ from watermarking_method import (
 )
 from add_after_eof import AddAfterEOF
 from unsafe_bash_bridge_append_eof import UnsafeBashBridgeAppendEOF
+from plugins.xmp_perpage import XmpPerPageMethod  
+from watermarking_lsb import LSBWatermark
 
 
 # --------------------
@@ -53,7 +55,9 @@ from unsafe_bash_bridge_append_eof import UnsafeBashBridgeAppendEOF
 METHODS: Dict[str, WatermarkingMethod] = {
     AddAfterEOF.name: AddAfterEOF(),
     UnsafeBashBridgeAppendEOF.name: UnsafeBashBridgeAppendEOF(),
-    LSBImageMethod.name: LSBImageMethod()
+    LSBImageMethod.name: LSBImageMethod(),
+    XmpPerPageMethod.name: XmpPerPageMethod(),     
+    LSBWatermark.name: LSBWatermark(), 
 }
 """Registry of available watermarking methods.
 
@@ -106,7 +110,7 @@ def is_watermarking_applicable(
     pdf: PdfSource,
     position: str | None = None,
 ) -> bool:
-    """Apply a watermark using the specified method and return new PDF bytes."""
+    """Return True if the given method can watermark this PDF (and position), else False."""
     m = get_method(method)
     return m.is_watermark_applicable(pdf=pdf, position=position)
 

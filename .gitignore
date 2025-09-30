@@ -208,3 +208,6 @@ __marimo__/
 .env
 tatou/flag
 tatou/server/flag
+flag
+server/flag
+.DS_Store
