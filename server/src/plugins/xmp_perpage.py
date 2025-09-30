@@ -34,11 +34,20 @@ _NS_URI = "https://tatou.local/wm/1.0/"
 _NS_PREF = "wm"
 
 
+import hashlib  # (you already import it above)
+
 def _key_to_bytes(key: str) -> bytes:
-    key_b = key.encode("utf-8", errors="strict")
-    if len(key_b) < 16:
-        raise ValueError("key must be at least 16 bytes (UTF-8)")
-    return key_b
+    """
+    Derive a fixed 16-byte key from the provided string.
+    - If the UTF-8 key is shorter than 16 bytes, expand via SHA-256 and take 16.
+    - If longer, truncate to 16 (keeps compatibility / constant size).
+    """
+    kb = key.encode("utf-8", errors="strict")
+    if len(kb) < 16:
+        kb = hashlib.sha256(kb).digest()[:16]
+    else:
+        kb = kb[:16]
+    return kb
 
 
 def _hmac_hex(key_b: bytes, data_b: bytes) -> str:
@@ -80,7 +89,8 @@ class XmpPerPageMethod(WatermarkingMethod):
     def get_usage() -> str:
         return (
             "Embeds 'secret' into XMP with per-page salt+HMAC. "
-            "Key must be >=16 bytes. Position is ignored."
+            "Key is accepted at any length; internally derived to 16 bytes. "
+            "Position is ignored."
         )
 
     def is_watermark_applicable(
