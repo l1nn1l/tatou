@@ -212,3 +212,4 @@ flag
 server/flag
 
 keys/server_priv.asc
+.DS_Store
