@@ -1,0 +1,15 @@
+# docker-compose.ci.yml
+# Overrides for GitHub Actions CI
+services:
+  db:
+    ports: []       # clear out any ports from base file
+    expose: []      # prevent exposing internal port
+    healthcheck:
+      disable: true
+
+  server:
+    ports:
+      - "5000:5000"
+    depends_on:
+      db:
+        condition: service_started

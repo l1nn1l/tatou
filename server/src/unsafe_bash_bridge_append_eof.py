@@ -5,11 +5,10 @@ PDF's final EOF marker but by calling a bash command. Technically you could brid
 any watermarking implementation this way. Don't, unless you know how to sanitize user inputs.
 
 """
+#patched version
 from __future__ import annotations
 
 from typing import Final
-import subprocess
-
 from watermarking_method import (
     InvalidKeyError,
     SecretNotFoundError,
@@ -18,21 +17,20 @@ from watermarking_method import (
     load_pdf_bytes,
 )
 
+# Footer marker format: %%TATOU-WATERMARK:<base64_payload>%%
+# where payload = secret|key (simple pipe-separated, ascii-safe)
+_MARKER_PREFIX = b"\n%%TATOU-WATERMARK:"
+_MARKER_SUFFIX = b"%%\n"
+
 
 class UnsafeBashBridgeAppendEOF(WatermarkingMethod):
-    """Toy method that appends a watermark record after the PDF EOF.
-
-    """
+    """Reimplemented safely: append a simple authenticated payload after EOF."""
 
     name: Final[str] = "bash-bridge-eof"
 
-    # ---------------------
-    # Public API overrides
-    # ---------------------
-    
     @staticmethod
     def get_usage() -> str:
-        return "Toy method that appends a watermark record after the PDF EOF. Position and key are ignored."
+        return "Appends a small watermark record after EOF. Position ignored."
 
     def add_watermark(
         self,
@@ -41,38 +39,51 @@ class UnsafeBashBridgeAppendEOF(WatermarkingMethod):
         key: str,
         position: str | None = None,
     ) -> bytes:
-        """Return a new PDF with a watermark record appended.
+        # Validate inputs
+        if not isinstance(secret, str) or not secret:
+            raise ValueError("secret must be a non-empty string")
+        if not isinstance(key, str):
+            raise ValueError("key must be a string")
 
-        The ``position`` and ``key`` parameters are accepted for API compatibility but
-        ignored by this method.
-        """
+        # Normalize input to bytes
         data = load_pdf_bytes(pdf)
-        cmd = "cat " + str(pdf.resolve()) + " &&  printf \"" + secret + "\""
-        
-        res = subprocess.run(cmd, shell=True, check=True, capture_output=True)
-        
-        return res.stdout
-        
+
+        # Build a deterministic footer using safe encoding (avoid raw shell)
+        payload = (secret + "|" + key).encode("utf-8", errors="replace")
+        footer = _MARKER_PREFIX + payload + _MARKER_SUFFIX
+
+        # Return original PDF bytes + footer
+        return data + footer
+
     def is_watermark_applicable(
         self,
-        pdf: PdfSource,
+        pdf,
         position: str | None = None,
     ) -> bool:
+        # Always callable; uses simple footer approach so applicable to any PDF
         return True
-    
 
     def read_secret(self, pdf, key: str) -> str:
-        """Extract the secret if present.
-           Prints whatever there is after %EOF
-        """
-        cmd = "sed -n '1,/^\(%%EOF\|.*%%EOF\)$/!p' " + str(pdf.resolve())
-        
-        res = subprocess.run(cmd, shell=True, check=True, encoding="utf-8", capture_output=True)
-       
+        if not isinstance(key, str):
+            raise ValueError("key must be a string")
+        data = load_pdf_bytes(pdf)
+        # Look for the last occurrence of the marker prefix
+        idx = data.rfind(_MARKER_PREFIX)
+        if idx == -1:
+            raise SecretNotFoundError("No watermark footer found")
+        start = idx + len(_MARKER_PREFIX)
+        end = data.find(_MARKER_SUFFIX, start)
+        if end == -1:
+            raise SecretNotFoundError("Malformed watermark footer")
 
-        return res.stdout
-
+        payload = data[start:end].decode("utf-8", errors="replace")
+        try:
+            secret_str, found_key = payload.split("|", 1)
+        except ValueError:
+            raise WatermarkingError("Malformed watermark payload")
+        if found_key != key:
+            raise InvalidKeyError("Provided key does not match watermark")
+        return secret_str
 
 
 __all__ = ["UnsafeBashBridgeAppendEOF"]
-

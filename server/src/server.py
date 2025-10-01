@@ -1,17 +1,21 @@
 import os
 import io
+import base64
+import json
 import hashlib
 import datetime as dt
 from pathlib import Path
 from functools import wraps
 
-from flask import Flask, jsonify, request, g, send_file
+from flask import Flask, jsonify, request, g, send_file, current_app
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import IntegrityError
+
+from prometheus_flask_exporter import PrometheusMetrics
 
 import pickle as _std_pickle
 try:
@@ -24,8 +28,57 @@ import watermarking_utils as WMUtils
 from watermarking_method import WatermarkingMethod
 #from watermarking_utils import METHODS, apply_watermark, read_watermark, explore_pdf, is_watermarking_applicable, get_method
 
+
+# --- DB engine only (no Table metadata) ---
+def db_url(app) -> str:
+    return (
+        f"mysql+pymysql://{app.config['DB_USER']}:{app.config['DB_PASSWORD']}"
+        f"@{app.config['DB_HOST']}:{app.config['DB_PORT']}/{app.config['DB_NAME']}?charset=utf8mb4"
+    )
+
+def get_engine(app):
+    eng = app.config.get("_ENGINE")
+    if eng is None:
+        eng = create_engine(db_url(app), pool_pre_ping=True, future=True)
+        app.config["_ENGINE"] = eng
+    return eng
+
+# Rmap helper
+def ensure_professor_doc(app) -> int:
+    pdf_path = app.config["STORAGE_DIR"] / "files" / "Group_10.pdf"
+
+    file_bytes = pdf_path.read_bytes()
+    sha256_hex = hashlib.sha256(file_bytes).hexdigest()
+    file_size = pdf_path.stat().st_size
+
+    with get_engine(app).begin() as conn:   # <-- fixed
+        row = conn.execute(
+            text("SELECT id FROM Documents WHERE name = :name LIMIT 1"),
+            {"name": "Group_10.pdf"},
+        ).first()
+        if row:
+            return int(row.id)
+
+        conn.execute(
+            text("""
+                INSERT INTO Documents (name, path, sha256, size)
+                VALUES (:name, :path, :sha256, :size)
+            """),
+            {
+                "name": "Group_10.pdf",
+                "path": str(pdf_path),
+                "sha256": sha256_hex,
+                "size": file_size,
+            },
+        )
+        new_id = conn.execute(text("SELECT LAST_INSERT_ID()")).scalar()
+        return int(new_id)
+
 def create_app():
     app = Flask(__name__)
+    #enable prometheus metrics
+    metrics = PrometheusMetrics(app)
+   # metrics.info('tatou_app', 'Tatou watermarking service', version='1.0.0')
 
     # --- Config ---
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-change-me")
@@ -40,19 +93,6 @@ def create_app():
 
     app.config["STORAGE_DIR"].mkdir(parents=True, exist_ok=True)
 
-    # --- DB engine only (no Table metadata) ---
-    def db_url() -> str:
-        return (
-            f"mysql+pymysql://{app.config['DB_USER']}:{app.config['DB_PASSWORD']}"
-            f"@{app.config['DB_HOST']}:{app.config['DB_PORT']}/{app.config['DB_NAME']}?charset=utf8mb4"
-        )
-
-    def get_engine():
-        eng = app.config.get("_ENGINE")
-        if eng is None:
-            eng = create_engine(db_url(), pool_pre_ping=True, future=True)
-            app.config["_ENGINE"] = eng
-        return eng
 
     # --- Helpers ---
     def _serializer():
@@ -98,7 +138,7 @@ def create_app():
     @app.get("/healthz")
     def healthz():
         try:
-            with get_engine().connect() as conn:
+            with get_engine(app).connect() as conn:
                 conn.execute(text("SELECT 1"))
             db_ok = True
         except Exception:
@@ -118,7 +158,7 @@ def create_app():
         hpw = generate_password_hash(password)
 
         try:
-            with get_engine().begin() as conn:
+            with get_engine(app).begin() as conn:
                 res = conn.execute(
                     text("INSERT INTO Users (email, hpassword, login) VALUES (:email, :hpw, :login)"),
                     {"email": email, "hpw": hpw, "login": login},
@@ -145,7 +185,7 @@ def create_app():
             return jsonify({"error": "email and password are required"}), 400
 
         try:
-            with get_engine().connect() as conn:
+            with get_engine(app).connect() as conn:
                 row = conn.execute(
                     text("SELECT id, email, login, hpassword FROM Users WHERE email = :email LIMIT 1"),
                     {"email": email},
@@ -184,7 +224,7 @@ def create_app():
         size = stored_path.stat().st_size
 
         try:
-            with get_engine().begin() as conn:
+            with get_engine(app).begin() as conn:
                 conn.execute(
                     text("""
                         INSERT INTO Documents (name, path, ownerid, sha256, size)
@@ -223,7 +263,7 @@ def create_app():
     @require_auth
     def list_documents():
         try:
-            with get_engine().connect() as conn:
+            with get_engine(app).connect() as conn:
                 rows = conn.execute(
                     text("""
                         SELECT id, name, creation, HEX(sha256) AS sha256_hex, size
@@ -261,7 +301,7 @@ def create_app():
                 return jsonify({"error": "document id required"}), 400
         
         try:
-            with get_engine().connect() as conn:
+            with get_engine(app).connect() as conn:
                 rows = conn.execute(
                     text("""
                         SELECT v.id, v.documentid, v.link, v.intended_for, v.secret, v.method
@@ -291,7 +331,7 @@ def create_app():
     @require_auth
     def list_all_versions():
         try:
-            with get_engine().connect() as conn:
+            with get_engine(app).connect() as conn:
                 rows = conn.execute(
                     text("""
                         SELECT v.id, v.documentid, v.link, v.intended_for, v.method
@@ -329,7 +369,7 @@ def create_app():
                 return jsonify({"error": "document id required"}), 400
         
         try:
-            with get_engine().connect() as conn:
+            with get_engine(app).connect() as conn:
                 row = conn.execute(
                     text("""
                         SELECT id, name, path, HEX(sha256) AS sha256_hex, size
@@ -380,7 +420,7 @@ def create_app():
     def get_version(link: str):
         
         try:
-            with get_engine().connect() as conn:
+            with get_engine(app).connect() as conn:
                 row = conn.execute(
                     text("""
                         SELECT *
@@ -459,7 +499,7 @@ def create_app():
 
         # Fetch the document (enforce ownership)
         try:
-            with get_engine().connect() as conn:
+            with get_engine(app).connect() as conn:
                 query = "SELECT * FROM Documents WHERE id = " + doc_id
                 row = conn.execute(text(query)).first()
         except Exception as e:
@@ -492,7 +532,7 @@ def create_app():
 
         # Delete DB row (will cascade to Version if FK has ON DELETE CASCADE)
         try:
-            with get_engine().begin() as conn:
+            with get_engine(app).begin() as conn:
                 # If your schema does NOT have ON DELETE CASCADE on Version.documentid,
                 # uncomment the next line first:
                 # conn.execute(text("DELETE FROM Version WHERE documentid = :id"), {"id": doc_id})
@@ -544,7 +584,7 @@ def create_app():
 
         # lookup the document; enforce ownership
         try:
-            with get_engine().connect() as conn:
+            with get_engine(app).connect() as conn:
                 row = conn.execute(
                     text("""
                         SELECT id, name, path
@@ -619,7 +659,7 @@ def create_app():
         link_token = hashlib.sha1(candidate.encode("utf-8")).hexdigest()
 
         try:
-            with get_engine().begin() as conn:
+            with get_engine(app).begin() as conn:
                 conn.execute(
                     text("""
                         INSERT INTO Versions (documentid, link, intended_for, secret, method, position, path)
@@ -764,26 +804,90 @@ def create_app():
         if not method or not isinstance(key, str):
             return jsonify({"error": "method, and key are required"}), 400
 
-        # lookup the document; FIXME enforce ownership
+
+# Change1
+        # Optional: choose a specific version to read
+        version_id = payload.get("version_id")
+        link = payload.get("link")
+
         try:
-            with get_engine().connect() as conn:
-                row = conn.execute(
+            with get_engine(app).connect() as conn:
+                # Enforce ownership on the base document
+                doc_row = conn.execute(
                     text("""
-                        SELECT id, name, path
-                        FROM Documents
-                        WHERE id = :id
+                        SELECT d.id, d.name
+                        FROM Documents d
+                        WHERE d.id = :id AND d.ownerid = :uid
+                        LIMIT 1
                     """),
-                    {"id": doc_id},
+                    {"id": doc_id, "uid": int(g.user["id"])},
                 ).first()
+                if not doc_row:
+                    return jsonify({"error": "document not found"}), 404
+
+                # Decide which file to read:
+                # 1) explicit version_id
+                vrow = None
+                if version_id is not None:
+                    vrow = conn.execute(
+                        text("""
+                            SELECT v.id, v.link, v.path
+                            FROM Versions v
+                            JOIN Documents d ON d.id = v.documentid
+                            WHERE v.id = :vid AND d.id = :did AND d.ownerid = :uid
+                            LIMIT 1
+                        """),
+                        {"vid": int(version_id), "did": doc_id, "uid": int(g.user["id"])},
+                    ).first()
+                # 2) explicit link
+                if vrow is None and link:
+                    vrow = conn.execute(
+                        text("""
+                            SELECT v.id, v.link, v.path
+                            FROM Versions v
+                            JOIN Documents d ON d.id = v.documentid
+                            WHERE v.link = :link AND d.id = :did AND d.ownerid = :uid
+                            LIMIT 1
+                        """),
+                        {"link": str(link), "did": doc_id, "uid": int(g.user["id"])},
+                    ).first()
+                # 3) otherwise: latest version for this document
+                if vrow is None:
+                    vrow = conn.execute(
+                        text("""
+                            SELECT v.id, v.link, v.path
+                            FROM Versions v
+                            JOIN Documents d ON d.id = v.documentid
+                            WHERE d.id = :did AND d.ownerid = :uid
+                            ORDER BY v.id DESC
+                            LIMIT 1
+                        """),
+                        {"did": doc_id, "uid": int(g.user["id"])},
+                    ).first()
+
+                if not vrow:
+                    # No versions exist: fall back to the original document (likely no WM)
+                    base_row = conn.execute(
+                        text("""
+                            SELECT d.path
+                            FROM Documents d
+                            WHERE d.id = :did AND d.ownerid = :uid
+                            LIMIT 1
+                        """),
+                        {"did": doc_id, "uid": int(g.user["id"])},
+                    ).first()
+                    if not base_row:
+                        return jsonify({"error": "document not found"}), 404
+                    chosen_path = base_row.path
+                else:
+                    chosen_path = vrow.path
         except Exception as e:
             return jsonify({"error": f"database error: {str(e)}"}), 503
 
-        if not row:
-            return jsonify({"error": "document not found"}), 404
-
         # resolve path safely under STORAGE_DIR
         storage_root = Path(app.config["STORAGE_DIR"]).resolve()
-        file_path = Path(row.path)
+        file_path = Path(chosen_path)
+# change 1
         if not file_path.is_absolute():
             file_path = storage_root / file_path
         file_path = file_path.resolve()
@@ -808,7 +912,119 @@ def create_app():
             "secret": secret,
             "method": method,
             "position": position
-        }), 201
+        }), 200
+    
+
+    # --- RMAP setup ---
+    from rmap.identity_manager import IdentityManager
+    from rmap.rmap import RMAP
+
+    BASE_DIR = Path(__file__).resolve().parents[2]  # project root = tatou/
+    KEYS_DIR = BASE_DIR / "keys"
+    PUBKEYS_DIR = KEYS_DIR / "pki"
+    SERVER_PUB = KEYS_DIR / "server_pub.asc"
+    SERVER_PRIV = KEYS_DIR / "server_priv.asc"
+
+    identity_manager = IdentityManager(
+        client_keys_dir=str(PUBKEYS_DIR),
+        server_public_key_path=str(SERVER_PUB),
+        server_private_key_path=str(SERVER_PRIV),
+        server_private_key_passphrase="CLL"
+    )
+    app.rmap = RMAP(identity_manager)
+
+    # --- Ensure professor doc exists ---
+    if os.environ.get("TESTING", "0") == "1":
+        # Skip DB in test mode
+        app.config["PROFESSOR_DOC_ID"] = 1  # fake ID for tests
+    else:
+        prof_doc_id = ensure_professor_doc(app)
+        app.config["PROFESSOR_DOC_ID"] = prof_doc_id
+
+
+    @app.post("/api/rmap-initiate")
+    def rmap_initiate():
+        """
+        Accept RMAP Message 1, return Response 1.
+        """
+        payload = request.get_json(silent=True) or {}
+        if "payload" not in payload:
+            return jsonify({"error": "payload is required"}), 400
+
+        resp = current_app.rmap.handle_message1(payload)
+        if "error" in resp:
+            return jsonify(resp), 400
+
+        return jsonify(resp), 200
+
+    @app.post("/api/rmap-get-link")
+    def rmap_get_link():
+        """
+        Accept RMAP Message 2, return Response 2 (hex result).
+        Also generates a watermarked PDF linked to the session secret.
+        """
+        payload = request.get_json(silent=True) or {}
+        if "payload" not in payload:
+            return jsonify({"error": "payload is required"}), 400
+
+        # Step 1: Let RMAP library handle Message 2
+        resp = current_app.rmap.handle_message2(payload)
+        if "error" in resp:
+            return jsonify(resp), 400
+
+        # Step 2: Extract session secret (32-hex NonceClient||NonceServer)
+        session_secret = resp["result"]
+
+        # -------------------------------
+        # INSERT WATERMARKING HERE
+        # -------------------------------
+        # Input/output files
+        pdf_in = Path(current_app.config["STORAGE_DIR"]) / "files" / "Group_10.pdf"
+        pdf_out = Path(current_app.config["STORAGE_DIR"]) / "files" / f"{session_secret}.pdf"
+
+        try:
+            # Apply XMP-PerPage watermark
+            wm_bytes = WMUtils.apply_watermark(
+                method="xmp-perpage",
+                pdf=str(pdf_in),
+                secret=session_secret,         # watermark = RMAP session secret
+                key="tatou_default_demo_key!", # must be >=16 chars
+                position=None                  # ignored in v1
+            )
+
+            # Save to disk
+            with pdf_out.open("wb") as f:
+                f.write(wm_bytes)
+        except Exception as e:
+            return jsonify({"error": f"Failed to watermark with xmp-perpage: {e}"}), 500
+
+        documentid = current_app.config["PROFESSOR_DOC_ID"]
+        # -------------------------------
+        # Insert DB entry so /get-version/<session_secret> can serve it
+        # -------------------------------
+        try:
+            with get_engine(app).begin() as conn:
+                conn.execute(
+                    text("""
+                        INSERT INTO Versions (documentid, link, intended_for, secret, method, position, path)
+                        VALUES (:documentid, :link, :intended_for, :secret, :method, :position, :path)
+                    """),
+                    {
+                        "documentid": documentid,  
+                        "link": session_secret,
+                        "intended_for": "external",
+                        "secret": session_secret,
+                        "method": "xmp-perpage",
+                        "position": "",
+                        "path": str(pdf_out),
+                    },
+                )
+        except Exception as e:
+            return jsonify({"error": f"DB insert failed: {e}"}), 503
+
+        # Step 3: Return the encrypted RMAP response
+        return jsonify(resp), 200
+
 
     return app
     
