@@ -11,7 +11,6 @@ def _pdf_bytes(pages: int = 1) -> bytes:
     buf = io.BytesIO()
     with pikepdf.new() as doc:
         for _ in range(pages):
-            # pikepdf 9.x
             doc.add_blank_page()
         doc.save(buf)
     return buf.getvalue()
@@ -30,7 +29,6 @@ def test_roundtrip_embed_extract():
     # sanity: minst en sida har salt+mac i XMP
     with pikepdf.open(io.BytesIO(wm)) as doc:
         with doc.open_metadata() as x:
-            # pikepdf visar ofta lokalnamn oprefixerat
             page_count = int(str(x.get("page_count") or "0"))
             assert page_count >= 1
             assert x.get("p0_salt") is not None
@@ -41,7 +39,7 @@ def test_wrong_key_fails():
     m = XmpPerPageMethod()
     pdf = _pdf_bytes(1)
     good_key = "1234567890abcdef1234567890abcdef"
-    bad_key =  "ffffffffffffffffffffffffffffffff"
+    bad_key = "ffffffffffffffffffffffffffffffff"
 
     wm = m.add_watermark(pdf, "abc123", good_key)
 
