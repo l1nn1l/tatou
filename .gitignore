@@ -210,3 +210,5 @@ tatou/flag
 tatou/server/flag
 flag
 server/flag
+
+keys/server_priv.asc
