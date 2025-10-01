@@ -55,7 +55,7 @@ from watermarking_lsb import LSBWatermark
 METHODS: Dict[str, WatermarkingMethod] = {
     AddAfterEOF.name: AddAfterEOF(),
     UnsafeBashBridgeAppendEOF.name: UnsafeBashBridgeAppendEOF(),
-    LSBImageMethod.name: LSBImageMethod()
+    LSBImageMethod.name: LSBImageMethod(),
     XmpPerPageMethod.name: XmpPerPageMethod(),     
     LSBWatermark.name: LSBWatermark(), 
 }

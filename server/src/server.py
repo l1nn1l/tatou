@@ -47,11 +47,15 @@ def get_engine(app):
 def ensure_professor_doc(app) -> int:
     pdf_path = app.config["STORAGE_DIR"] / "files" / "Group_10.pdf"
 
+    if not pdf_path.exists():
+        print(f"[WARN] Professor doc not found at {pdf_path}, skipping insert")
+        return -1  
+
     file_bytes = pdf_path.read_bytes()
     sha256_hex = hashlib.sha256(file_bytes).hexdigest()
     file_size = pdf_path.stat().st_size
 
-    with get_engine(app).begin() as conn:   # <-- fixed
+    with get_engine(app).begin() as conn:
         row = conn.execute(
             text("SELECT id FROM Documents WHERE name = :name LIMIT 1"),
             {"name": "Group_10.pdf"},
@@ -61,13 +65,14 @@ def ensure_professor_doc(app) -> int:
 
         conn.execute(
             text("""
-                INSERT INTO Documents (name, path, sha256, size)
-                VALUES (:name, :path, :sha256, :size)
+                INSERT INTO Documents (name, path, ownerid, sha256, size)
+                VALUES (:name, :path, :ownerid, UNHEX(:sha256hex), :size)
             """),
             {
                 "name": "Group_10.pdf",
                 "path": str(pdf_path),
-                "sha256": sha256_hex,
+                "ownerid": 1,
+                "sha256hex": sha256_hex,
                 "size": file_size,
             },
         )
@@ -919,8 +924,16 @@ def create_app():
     from rmap.identity_manager import IdentityManager
     from rmap.rmap import RMAP
 
-    BASE_DIR = Path(__file__).resolve().parents[2]  # project root = tatou/
-    KEYS_DIR = BASE_DIR / "keys"
+    def find_repo_root() -> Path:
+        src_dir = Path(__file__).resolve().parent
+        for parent in src_dir.parents:
+            if (parent / "keys").exists():
+                return parent
+        raise RuntimeError("Could not locate repo root with 'keys/' folder")
+
+    REPO_ROOT = find_repo_root()
+
+    KEYS_DIR = REPO_ROOT / "keys"
     PUBKEYS_DIR = KEYS_DIR / "pki"
     SERVER_PUB = KEYS_DIR / "server_pub.asc"
     SERVER_PRIV = KEYS_DIR / "server_priv.asc"
