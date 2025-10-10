@@ -7,7 +7,7 @@ import datetime as dt
 from pathlib import Path
 from functools import wraps
 
-from flask import Flask, jsonify, request, g, send_file, current_app
+from flask import Flask, jsonify, request, g, send_file, current_app, abort
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
@@ -27,7 +27,7 @@ except Exception:  # dill is optional
 import watermarking_utils as WMUtils
 from watermarking_method import WatermarkingMethod
 #from watermarking_utils import METHODS, apply_watermark, read_watermark, explore_pdf, is_watermarking_applicable, get_method
-
+from utils.signed_links import verify_token
 
 # --- DB engine only (no Table metadata) ---
 def db_url(app) -> str:
@@ -424,6 +424,23 @@ def create_app():
     @app.get("/api/get-version/<link>")
     def get_version(link: str):
         
+        # --- Added: signed-link verification ---
+        token = request.args.get("token")
+        if not token:
+            auth = request.headers.get("Authorization", "")
+            if auth.startswith("Bearer "):
+                token = auth.split(" ", 1)[1]
+        if not token:
+            return jsonify({"error": "access token required"}), 401
+
+
+        ok, v = verify_token(token)
+        if not ok:
+            return jsonify({"error": f"invalid token ({v})"}), 401
+        if v != link:
+            return jsonify({"error": "token does not match requested link"}), 401
+      # --- End of added section ---
+   					      
         try:
             with get_engine(app).connect() as conn:
                 row = conn.execute(

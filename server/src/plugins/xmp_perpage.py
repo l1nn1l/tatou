@@ -127,7 +127,9 @@ class XmpPerPageMethod(WatermarkingMethod):
                 # basinfo
                 xmp[f"{_NS_PREF}:method"] = self.name
                 xmp[f"{_NS_PREF}:page_count"] = str(page_count)
-                xmp[f"{_NS_PREF}:secret"] = str(secret)
+                secret_digest = hashlib.sha256(secret.encode("utf-8")).hexdigest()
+                xmp[f"{_NS_PREF}:secret_digest"] = secret_digest
+
 
                 # tidsstämpel som lista (krav i pikepdf), UTC med 'Z'
                 ts = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
@@ -153,7 +155,7 @@ class XmpPerPageMethod(WatermarkingMethod):
 
         with pikepdf.open(io.BytesIO(data)) as doc:
             with doc.open_metadata() as xmp:
-                secret = _xmp_get_any(xmp, "secret")
+                secret_digest = _xmp_get_any(xmp, "secret_digest")
                 page_count_str = _xmp_get_any(xmp, "page_count")
 
         if not secret:
