@@ -213,3 +213,8 @@ server/flag
 
 keys/server_priv.asc
 .DS_Store
+.venv/
+fuzzer/fuzz_in/*
+!fuzzer/fuzz_in/.gitkeep
+fuzzer/crashes/*
+!fuzzer/crashes/.gitkeep
