@@ -424,6 +424,42 @@ def create_app():
     @app.get("/api/get-version/<link>")
     def get_version(link: str):
         
+
+     # --- Allow RMAP "external" links to bypass token requirement ---
+        try:
+            with get_engine(app).connect() as conn:
+                row = conn.execute(
+                    text("""
+                        SELECT path, intended_for
+                        FROM Versions
+                        WHERE link = :link
+                        LIMIT 1
+                    """),
+                    {"link": link},
+                ).first()
+        except Exception as e:
+            app.logger.warning(f"DB lookup failed in get_version: {e}")
+            row = None
+
+        if row:
+            path, intended_for = row[0], row[1]
+
+            # if this link was created for RMAP exchange, allow public download
+            if (intended_for or "").lower().strip() == "external":
+                from pathlib import Path
+                fp = Path(path)
+                if fp.exists():
+                    app.logger.info(f"Serving external RMAP PDF {link} to {request.remote_addr}")
+                    return send_file(
+                        str(fp),
+                        mimetype="application/pdf",
+                        as_attachment=False,
+                        download_name=f"{link}.pdf",
+                    )
+                else:
+                    return jsonify({"error": "file missing on disk"}), 410
+        # --- For all other documents, keep existing token-protected behaviour ---
+
         # --- Added: signed-link verification ---
         token = request.args.get("token")
         if not token:
