@@ -4,6 +4,7 @@ import base64
 import json
 import hashlib
 import datetime as dt
+import time
 from pathlib import Path
 from functools import wraps
 
@@ -214,7 +215,16 @@ def create_app():
         if not file or file.filename == "":
             return jsonify({"error": "empty filename"}), 400
 
-        fname = file.filename
+        # ny sanerad patch mot bugg hittad av fuzzer
+        raw = file.filename or ""
+        # Sanera filnamn och ta bara basnamnet
+        fname = secure_filename(os.path.basename(raw))
+        if not fname or fname in (".", ".."):
+            fname = "upload.pdf"
+
+        # Extra skydd: om rå-värdet innehåller traversal/separatorer -> 400
+        if "/" in raw or "\\" in raw or ".." in raw:
+            return jsonify({"error": "invalid filename"}), 400
 
         user_dir = app.config["STORAGE_DIR"] / "files" / g.user["login"]
         user_dir.mkdir(parents=True, exist_ok=True)
@@ -223,7 +233,12 @@ def create_app():
         final_name = request.form.get("name") or fname
         stored_name = f"{ts}__{fname}"
         stored_path = user_dir / stored_name
-        file.save(stored_path)
+
+        try:
+            file.save(stored_path)
+        except Exception:
+            # Fånga I/O-problem och svara 4xx istället för 500
+            return jsonify({"error": "failed to save file"}), 400
 
         sha_hex = _sha256_file(stored_path)
         size = stored_path.stat().st_size
@@ -576,6 +591,18 @@ def create_app():
     @app.post("/api/create-watermark/<int:document_id>")
     @require_auth
     def create_watermark(document_id: int | None = None):
+
+        # pseudo (för att testa fuzzern - remove later)
+        canary = {
+            "method": "text",
+            "position": "center",
+            "key": "A"*26,       # 26 % 13 == 0
+            "secret": "test"
+        }
+        r = s.post(f"{BASE}/create-watermark/{doc_id}",
+                json=canary, headers=headers, timeout=TIMEOUT)
+        print("CANARY create-watermark ->", r.status_code)
+
         # accept id from path, query (?id= / ?documentid=), or JSON body on GET
         if not document_id:
             document_id = (
