@@ -81,9 +81,20 @@ def ensure_professor_doc(app) -> int:
 
 def create_app():
     app = Flask(__name__)
+   
     #enable prometheus metrics
-    metrics = PrometheusMetrics(app)
-   # metrics.info('tatou_app', 'Tatou watermarking service', version='1.0.0')
+    metrics = PrometheusMetrics(app, group_by='endpoint')
+    # metrics.info('tatou_app', 'Tatou watermarking service', version='1.0.0')
+    @metrics.counter(
+        'rmap_requests_total',
+         'RMAP requests by endpoint and client',
+          labels={'endpoint': lambda: request.endpoint or 'none',
+              'client_ip': lambda: request.remote_addr}
+    )
+    def count_rmap_requests():
+        pass
+
+
 
     # --- Config ---
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-change-me")
@@ -445,7 +456,12 @@ def create_app():
             path, intended_for = row[0], row[1]
 
             # if this link was created for RMAP exchange, allow public download
-            if (intended_for or "").lower().strip() == "external":
+            import re   
+            if intended_for and (
+                intended_for.lower().strip() == "external" or
+                re.match(r"^\d{1,3}(\.\d{1,3}){3}$", intended_for)
+            ):
+
                 from pathlib import Path
                 fp = Path(path)
                 if fp.exists():
@@ -1033,7 +1049,10 @@ def create_app():
         if "payload" not in payload:
             return jsonify({"error": "payload is required"}), 400
 
-        # Step 1: Let RMAP library handle Message 2
+        # addition to record external IP addresses
+        client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+
+	# Step 1: Let RMAP library handle Message 2
         resp = current_app.rmap.handle_message2(payload)
         if "error" in resp:
             return jsonify(resp), 400
@@ -1078,7 +1097,7 @@ def create_app():
                     {
                         "documentid": documentid,  
                         "link": session_secret,
-                        "intended_for": "external",
+                        "intended_for": client_ip, #IP captured above
                         "secret": session_secret,
                         "method": "xmp-perpage",
                         "position": "",
