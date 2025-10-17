@@ -587,51 +587,60 @@ def create_app():
         
         
     # POST /api/create-watermark or /api/create-watermark/<id>  → create watermarked pdf and returns metadata
+    from flask import request, jsonify, current_app
+    from werkzeug.exceptions import BadRequest
+
+    ALLOWED_METHODS = {"text", "meta", "bits", "best"}
+    ALLOWED_POS = {"tl","tr","bl","br","center"}
+
+    def _as_str(x, maxlen=4096):
+        return x if isinstance(x, str) and 0 < len(x) <= maxlen else None
+
+    # POST /api/create-watermark or /api/create-watermark/<id>
     @app.post("/api/create-watermark")
     @app.post("/api/create-watermark/<int:document_id>")
     @require_auth
     def create_watermark(document_id: int | None = None):
-
-        # pseudo (för att testa fuzzern - remove later)
-        canary = {
-            "method": "text",
-            "position": "center",
-            "key": "A"*26,       # 26 % 13 == 0
-            "secret": "test"
-        }
-        r = s.post(f"{BASE}/create-watermark/{doc_id}",
-                json=canary, headers=headers, timeout=TIMEOUT)
-        print("CANARY create-watermark ->", r.status_code)
-
-        # accept id from path, query (?id= / ?documentid=), or JSON body on GET
-        if not document_id:
-            document_id = (
-                request.args.get("id")
-                or request.args.get("documentid")
-                or (request.is_json and (request.get_json(silent=True) or {}).get("id"))
-            )
-        try:
-            doc_id = document_id
-        except (TypeError, ValueError):
+        # --- dokument-id kan komma från path, query eller body ---
+        # (men använd INTE interna HTTP-anrop här!)
+        if document_id is None:
+            # query eller body
+            q_id = request.args.get("id") or request.args.get("documentid")
+            if q_id is None and request.is_json:
+                body0 = request.get_json(silent=True) or {}
+                q_id = body0.get("id")
+            try:
+                document_id = int(q_id) if q_id is not None else None
+            except (TypeError, ValueError):
+                document_id = None
+        if document_id is None:
             return jsonify({"error": "document id required"}), 400
-            
-        payload = request.get_json(silent=True) or {}
-        # allow a couple of aliases for convenience
-        method = payload.get("method")
-        intended_for = payload.get("intended_for")
-        position = payload.get("position") or None
-        secret = payload.get("secret")
-        key = payload.get("key")
 
-        # validate input
+        # --- säkert JSON-parsning ---
         try:
-            doc_id = int(doc_id)
-        except (TypeError, ValueError):
-            return jsonify({"error": "document_id (int) is required"}), 400
-        if not method or not intended_for or not isinstance(secret, str) or not isinstance(key, str):
-            return jsonify({"error": "method, intended_for, secret, and key are required"}), 400
+            payload = request.get_json(force=False, silent=True)
+        except BadRequest:
+            return jsonify({"error": "invalid json"}), 400
+        if not isinstance(payload, dict):
+            payload = {}
 
-        # lookup the document; enforce ownership
+        # --- fält/validering ---
+        method       = _as_str(payload.get("method"))
+        intended_for = _as_str(payload.get("intended_for"))
+        position     = _as_str(payload.get("position"))  # valfritt; kan vara None
+        secret       = _as_str(payload.get("secret"))
+        key          = _as_str(payload.get("key"))
+
+        if method not in ALLOWED_METHODS:
+            return jsonify({"error": "invalid method"}), 422
+        if position is not None and position not in ALLOWED_POS:
+            return jsonify({"error": "invalid position"}), 422
+        if not intended_for:
+            return jsonify({"error": "intended_for is required"}), 400
+        if key is None or secret is None:
+            return jsonify({"error": "key/secret must be non-empty strings"}), 422
+
+        # --- lookup dokument & ägarskap ---
         try:
             with get_engine(app).connect() as conn:
                 row = conn.execute(
@@ -641,7 +650,7 @@ def create_app():
                         WHERE id = :id
                         LIMIT 1
                     """),
-                    {"id": doc_id},
+                    {"id": int(document_id)},
                 ).first()
         except Exception as e:
             return jsonify({"error": f"database error: {str(e)}"}), 503
@@ -649,7 +658,7 @@ def create_app():
         if not row:
             return jsonify({"error": "document not found"}), 404
 
-        # resolve path safely under STORAGE_DIR
+        # --- säkert resolva filsökväg under STORAGE_DIR ---
         storage_root = Path(app.config["STORAGE_DIR"]).resolve()
         file_path = Path(row.path)
         if not file_path.is_absolute():
@@ -658,11 +667,12 @@ def create_app():
         try:
             file_path.relative_to(storage_root)
         except ValueError:
-            return jsonify({"error": "document path invalid"}), 500
+            # path utanför roten → behandla som ogiltig begäran (422) i stället för 500
+            return jsonify({"error": "document path invalid"}), 422
         if not file_path.exists():
             return jsonify({"error": "file missing on disk"}), 410
 
-        # check watermark applicability
+        # --- kontrollera metodens applicerbarhet ---
         try:
             applicable = WMUtils.is_watermarking_applicable(
                 method=method,
@@ -674,7 +684,7 @@ def create_app():
         except Exception as e:
             return jsonify({"error": f"watermark applicability check failed: {e}"}), 400
 
-        # apply watermark → bytes
+        # --- applicera watermark ---
         try:
             wm_bytes: bytes = WMUtils.apply_watermark(
                 pdf=str(file_path),
@@ -685,10 +695,13 @@ def create_app():
             )
             if not isinstance(wm_bytes, (bytes, bytearray)) or len(wm_bytes) == 0:
                 return jsonify({"error": "watermarking produced no output"}), 500
+        except ValueError as e:
+            return jsonify({"error": f"bad input: {e}"}), 422
         except Exception as e:
+            current_app.logger.exception("watermarking failed")
             return jsonify({"error": f"watermarking failed: {e}"}), 500
 
-        # build destination file name: "<original_name>__<intended_to>.pdf"
+        # --- skriv utfil ---
         base_name = Path(row.name or file_path.name).stem
         intended_slug = secure_filename(intended_for)
         dest_dir = file_path.parent / "watermarks"
@@ -697,14 +710,13 @@ def create_app():
         candidate = f"{base_name}__{intended_slug}.pdf"
         dest_path = dest_dir / candidate
 
-        # write bytes
         try:
             with dest_path.open("wb") as f:
                 f.write(wm_bytes)
         except Exception as e:
             return jsonify({"error": f"failed to write watermarked file: {e}"}), 500
 
-        # link token = sha1(watermarked_file_name)
+        # --- länktoken och INSERT av version ---
         link_token = hashlib.sha1(candidate.encode("utf-8")).hexdigest()
 
         try:
@@ -715,7 +727,7 @@ def create_app():
                         VALUES (:documentid, :link, :intended_for, :secret, :method, :position, :path)
                     """),
                     {
-                        "documentid": doc_id,
+                        "documentid": int(document_id),
                         "link": link_token,
                         "intended_for": intended_for,
                         "secret": secret,
@@ -726,7 +738,6 @@ def create_app():
                 )
                 vid = int(conn.execute(text("SELECT LAST_INSERT_ID()")).scalar())
         except Exception as e:
-            # best-effort cleanup if DB insert fails
             try:
                 dest_path.unlink(missing_ok=True)
             except Exception:
@@ -735,7 +746,7 @@ def create_app():
 
         return jsonify({
             "id": vid,
-            "documentid": doc_id,
+            "documentid": int(document_id),
             "link": link_token,
             "intended_for": intended_for,
             "method": method,

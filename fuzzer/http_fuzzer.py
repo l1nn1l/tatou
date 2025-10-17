@@ -11,8 +11,84 @@ RUNS = int(os.environ.get("FUZZ_RUNS", "2000"))
 # ny helper för att matcha endpoints
 API_PREFIX = "/api"
 
-MAX_SAVED = 50
+MAX_SAVED = 200
 _saved = 0
+
+def mutate_watermark_body():
+    base = {
+        "method": random.choice(["text", "meta", "bits", "best"]),
+        "position": random.choice(["tl","tr","bl","br","center"]),
+        "key": ''.join(random.choice(string.ascii_letters+string.digits) for _ in range(16)),
+        "secret": ''.join(random.choice(string.ascii_letters) for _ in range(12)),
+    }
+    # struktur- & värdemutation 
+    if random.random() < 0.9:
+        k = random.choice(list(base.keys()))
+        base[k] = random.choice([None, "", "A"*random.randint(1,2048), -1, 0, 2**31-1, [], {}, True, False, "𝔽uzz🚀"*random.randint(1,20)])
+    # släng in okända nycklar ibland
+    if random.random() < 0.3:
+        base["__weird__"] = "x"*random.randint(1,200)
+    return base
+
+def fuzz_create_watermark(doc_id: int):
+    global _saved
+    body = mutate_watermark_body()
+    try:
+        r = s.post(API(f"create-watermark/{doc_id}"), json=body, headers=headers, timeout=TIMEOUT)
+    except requests.RequestException:
+        return
+    if r.status_code >= 500 and _saved < MAX_SAVED:
+        ts = int(time.time()*1000)
+        case = Path("crashes") / f"{ts}_create-watermark"
+        case.mkdir(parents=True, exist_ok=True)
+        (case/"request.json").write_text(json.dumps({"endpoint": f"/api/create-watermark/{doc_id}", "body": body}, indent=2))
+        (case/"response.json").write_text(json.dumps({"status": r.status_code, "headers": dict(r.headers), "text_prefix": r.text[:2000]}, indent=2))
+        # repro med token
+        auth = headers.get("Authorization") if headers else None
+        extra_h = f'-H "Authorization: {auth}" ' if auth else '${TOKEN:+-H "Authorization: Bearer ${TOKEN}"} '
+        (case/"repro.sh").write_text(f"""#!/usr/bin/env bash
+set -euo pipefail
+curl -v {extra_h}-H "Content-Type: application/json" -d '{json.dumps(body)}' "{BASE}{API_PREFIX}/create-watermark/{doc_id}"
+""")
+        os.chmod(case/"repro.sh", 0o755)
+        _saved += 1
+        print(f"[!] 5xx saved at {case}")
+
+def mutate_read_body():
+    base = {
+        "method": random.choice(["text", "meta", "bits", "best"]),
+        "key": ''.join(random.choice(string.ascii_letters+string.digits) for _ in range(16)),
+        "secret": ''.join(random.choice(string.ascii_letters) for _ in range(12)),
+    }
+    if random.random() < 0.9:
+        k = random.choice(list(base.keys()))
+        base[k] = random.choice([None, "", "A"*random.randint(1,2048), -1, 0, 2**31-1, [], {}, True, False, "𝔽uzz🚀"*random.randint(1,20)])
+    if random.random() < 0.3:
+        base["__noise__"] = "x"*random.randint(1,64)
+    return base
+
+def fuzz_read_watermark(doc_id: int):
+    global _saved
+    body = mutate_read_body()
+    try:
+        r = s.post(API(f"read-watermark/{doc_id}"), json=body, headers=headers, timeout=TIMEOUT)
+    except requests.RequestException:
+        return
+    if r.status_code >= 500 and _saved < MAX_SAVED:
+        ts = int(time.time()*1000)
+        case = Path("crashes") / f"{ts}_read-watermark"
+        case.mkdir(parents=True, exist_ok=True)
+        (case/"request.json").write_text(json.dumps({"endpoint": f"/api/read-watermark/{doc_id}", "body": body}, indent=2))
+        (case/"response.json").write_text(json.dumps({"status": r.status_code, "headers": dict(r.headers), "text_prefix": r.text[:2000]}, indent=2))
+        auth = headers.get("Authorization") if headers else None
+        extra_h = f'-H "Authorization: {auth}" ' if auth else '${TOKEN:+-H "Authorization: Bearer ${TOKEN}"} '
+        (case/"repro.sh").write_text(f"""#!/usr/bin/env bash
+set -euo pipefail
+curl -v {extra_h}-H "Content-Type: application/json" -d '{json.dumps(body)}' "{BASE}{API_PREFIX}/read-watermark/{doc_id}"
+""")
+        os.chmod(case/"repro.sh", 0o755)
+        _saved += 1
+        print(f"[!] 5xx saved at {case}")
 
 def should_save(resp, note=""):
     # spara bara serverfel (5xx) eller rena nätverksfel (resp=None)
@@ -59,13 +135,13 @@ def jwt_set(t):
 def sha256_bytes(b: bytes) -> str:
     return hashlib.sha256(b).hexdigest()
 
-# --- Radamsa helpers ---
+# Radamsa helpers
 def radamsa_mutate(b: bytes) -> bytes:
     try:
         p = subprocess.run(["radamsa", "-n", "1"], input=b, capture_output=True, check=True)
         return p.stdout if p.stdout else b
     except Exception:
-        # tiny fallback mutations
+        # tiny fallback mutations - om radamsa kraschar
         if not b: 
             return os.urandom(8)
         b = bytearray(b)
@@ -76,7 +152,7 @@ def radamsa_mutate(b: bytes) -> bytes:
             b.extend(os.urandom(random.randint(1,32)))
         return bytes(b)
 
-# --- Seed builders (valid-ish) from spec ---
+# Seed builders från spec
 def seed_login_email():  # unique per run
     suffix = ''.join(random.choice(string.ascii_lowercase) for _ in range(8))
     return f"fuzzer_{suffix}@ex.ample"
@@ -93,7 +169,7 @@ def create_user_and_login():
         r = s.post(API("create-user"),
                    json={"login": email.split("@")[0], "password": pwd, "email": email},
                    timeout=TIMEOUT)
-        # 200/201 = skapad, 409 = fanns redan (OK för oss)
+        # 200/201 = skapad, 409 = fanns redan
         if r.status_code not in (200, 201, 409):
             # spara bara om det faktiskt är 5xx
             if r.status_code >= 500:
@@ -118,7 +194,7 @@ def create_user_and_login():
         token = None
 
     if not token:
-        # inte 5xx, bara “no token” → return False utan att spara brus
+        # inte 5xx, bara “no token” → return false utan att spara brus
         return False
 
     headers = {"Authorization": f"Bearer {token}"}
@@ -172,7 +248,7 @@ def upload_random_pdf():
             _saved += 1
         return None, pdf
 
-    # --- spara ENDAST 5xx ---
+    # spara ENDAST 5xx 
     if r.status_code >= 500 and _saved < MAX_SAVED:
         ts = int(time.time()*1000)
         case = Path("crashes") / f"{ts}_upload"
@@ -208,7 +284,7 @@ def upload_random_pdf():
         print(f"[!] 5xx saved at {case}")
         return None, pdf
 
-    # 2xx/201 → OK; alla 4xx ignoreras nu tyst
+    # 2xx/201 → OK: alla 4xx ignoreras 
     if r.status_code in (200, 201):
         j = r.json()
         if not {"id","sha256","size"} <= set(j.keys()):
@@ -222,7 +298,7 @@ def upload_random_pdf():
 
 def create_watermark(doc_id: int):
     body = {
-        "method": random.choice(["text", "meta", "bits", "best"]),  # your methods here
+        "method": random.choice(["text", "meta", "bits", "best"]),  
         "position": random.choice(["tl","tr","bl","br","center"]),
         "key": ''.join(random.choice(string.ascii_letters+string.digits) for _ in range(16)),
         "secret": ''.join(random.choice(string.ascii_letters) for _ in range(12)),
@@ -252,6 +328,42 @@ def list_and_get(doc_id: int):
                 if rr.status_code >= 500:
                     save_crash("get-version-5xx", {"link": link}, rr)
 
+def random_link():
+    # blandning av tomt, kort/långt, base64-aktigt, unicode, konstiga tecken
+    opts = ["", "A", "==", ".", "..", "../", "//", " "]
+    b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    opts += [''.join(random.choice(b64+"=_-") for _ in range(random.randint(1,256)))]
+    opts += ["𝔏𝔦𝔫𝔨🔥"*random.randint(1,30)]
+    return random.choice(opts)
+
+def fuzz_get_version():
+    global _saved
+    link = random_link()
+    try:
+        r = s.get(API(f"get-version/{link}"), timeout=TIMEOUT)
+    except requests.RequestException:
+        return
+    if r.status_code >= 500 and _saved < MAX_SAVED:
+        ts = int(time.time()*1000)
+        case = Path("crashes") / f"{ts}_get-version"
+        case.mkdir(parents=True, exist_ok=True)
+        (case/"request.json").write_text(json.dumps({
+            "endpoint": f"/api/get-version/{link}"
+        }, indent=2))
+        (case/"response.json").write_text(json.dumps({
+            "status": r.status_code,
+            "headers": dict(r.headers),
+            "text_prefix": r.text[:2000]
+        }, indent=2))
+        (case/"repro.sh").write_text(f"""#!/usr/bin/env bash
+set -euo pipefail
+curl -v "{BASE}{API_PREFIX}/get-version/{link}"
+""")
+        os.chmod(case/"repro.sh", 0o755)
+        _saved += 1
+        print(f"[!] 5xx saved at {case}")
+
+
 def delete_twice(doc_id: int):
     r1 = s.delete(API(f"delete-document/{doc_id}"), headers=headers, timeout=TIMEOUT)
     r2 = s.delete(API(f"delete-document/{doc_id}"), headers=headers, timeout=TIMEOUT)
@@ -263,21 +375,38 @@ def main():
         return
     for i in range(RUNS):
         try:
+            if i % 50 == 0:
+                print(f"[i={i}] fuzzing…")
+
             if random.random() < 0.2:
                 # fuzz public endpoints quickly
                 s.get(f"{BASE}/healthz", timeout=TIMEOUT)
                 s.get(API("get-watermarking-methods"), timeout=TIMEOUT)
-            # upload -> watermark -> list/get -> delete twice
+
+            # upload -> watermark -> list/get -> maybe get-version -> delete twice
             doc_id, pdf = upload_random_pdf()
             if doc_id is None:
                 continue
-            create_watermark(doc_id)
+
+            # auth-krävande djup väg
+            fuzz_create_watermark(doc_id)
+            if random.random() < 0.6:
+                fuzz_read_watermark(doc_id)
+
+            # lista & hämta versioner (djup stig)
             list_and_get(doc_id)
+
+            # ibland: fuzz på publika GET-länken
+            if random.random() < 0.8:
+                fuzz_get_version()
+
+            # testa idempotens
             delete_twice(doc_id)
+
+            time.sleep(0.02)
+
         except requests.exceptions.RequestException as e:
             save_crash("network", {"step": "req", "i": i}, None, f"Exception: {e}")
         except Exception as e:
             save_crash("internal", {"i": i}, None, f"Exception: {e}")
 
-if __name__ == "__main__":
-    main()
