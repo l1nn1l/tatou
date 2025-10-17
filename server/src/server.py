@@ -16,6 +16,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.exc import IntegrityError
 
 from prometheus_flask_exporter import PrometheusMetrics
+from prometheus_client import Counter
 
 import pickle as _std_pickle
 try:
@@ -79,22 +80,11 @@ def ensure_professor_doc(app) -> int:
         new_id = conn.execute(text("SELECT LAST_INSERT_ID()")).scalar()
         return int(new_id)
 
+
 def create_app():
     app = Flask(__name__)
-   
-    #enable prometheus metrics
+
     metrics = PrometheusMetrics(app, group_by='endpoint')
-    # metrics.info('tatou_app', 'Tatou watermarking service', version='1.0.0')
-    @metrics.counter(
-        'rmap_requests_total',
-         'RMAP requests by endpoint and client',
-          labels={'endpoint': lambda: request.endpoint or 'none',
-              'client_ip': lambda: request.remote_addr}
-    )
-    def count_rmap_requests():
-        pass
-
-
 
     # --- Config ---
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-change-me")
@@ -1111,13 +1101,34 @@ def create_app():
         return jsonify(resp), 200
 
 
+    # --- Custom RMAP counter ---
+    @metrics.counter(
+        'rmap_requests_total',
+        'RMAP requests by endpoint and client',
+        labels={
+            'endpoint': lambda: request.endpoint or 'none',
+            'client_ip': lambda: request.remote_addr or 'unknown'
+        }
+    )
+    def count_rmap_requests():
+        pass
+
+    # --- Request path logging hook ---
+    @app.after_request
+    def log_request_path(response):
+        if request.path != '/metrics':
+            app.logger.info(f"{request.method} {request.path} -> {response.status_code}")
+        return response
+
+
+
     return app
-    
+
 
 # WSGI entrypoint
 app = create_app()
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
 
+if __name__ == "__main__":
+   port = int(os.environ.get("PORT", 5000))
+   app.run(host="0.0.0.0", port=port)
