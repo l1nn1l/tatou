@@ -43,15 +43,16 @@ jobs:
           echo "Healthcheck timed out, continuing anyway"
           exit 0
 
-
       - name: Prepare dummy server key
         run: |
           mkdir -p keys
-          echo "-----BEGIN PGP PRIVATE KEY BLOCK-----
-Version: TestKey
+          cat > keys/server_priv.asc <<'EOF'
+          -----BEGIN PGP PRIVATE KEY BLOCK-----
+          Version: TestKey
 
-dummy-key-placeholder
------END PGP PRIVATE KEY BLOCK-----" > keys/server_priv.asc
+          dummy-key-placeholder
+          -----END PGP PRIVATE KEY BLOCK-----
+          EOF
 
       - name: Run tests with coverage
         env:
