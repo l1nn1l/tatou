@@ -46,4 +46,7 @@ jobs:
           BASE_URL: http://localhost:5000
           TATOU_LINK_KEY: ${{ env.LINK_KEY }}
           FLAG_2: ${{ env.FLAG_2 }}
-        run: pytest --cov=tatou --cov-report=xml
+        run: |
+          export $(grep -v '^#' .env.ci | xargs)
+          export TATOU_LINK_KEY=$LINK_KEY 
+          pytest --cov=tatou --cov-report=xml
