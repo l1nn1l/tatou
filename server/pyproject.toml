@@ -13,7 +13,7 @@ dependencies = [
     "rmap @ git+https://github.com/nharrand/RMAP-Server.git@v1.0.0",
     "prometheus-flask-exporter>=0.23.0",
     "requests>=2.31.0",
-    "pikepdf>=9.0.0"         # <-- NYTT: för XMP/metadata-arbete
+    "pikepdf>=9.0.0"         # För XMP/metadata-arbete
 ]
 
 [project.optional-dependencies]
@@ -24,10 +24,5 @@ dev = [
     "pytest-cov>=4.0.0"
 ]
 
-[tool.pytest.ini_options]
-addopts = "-q"
-testpaths = ["test/"]
-python_files = ["test_*.py"]
-
 [project.scripts]
-pdfwm = "watermarking_cli:main"                 # now you can run `pdfwm methods`
+pdfwm = "watermarking_cli:main"

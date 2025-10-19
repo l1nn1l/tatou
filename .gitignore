@@ -210,3 +210,6 @@ tatou/flag
 tatou/server/flag
 flag
 server/flag
+.mutmut-cache
+.pytest_cache
+.pytest_tmp/
