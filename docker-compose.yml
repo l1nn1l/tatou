@@ -8,6 +8,7 @@ services:
     ports:
       - "5000:5000"
     volumes:
+      - ./server/flag:/app/flag          # host copy
       - user-files:/app/storage
       - ./keys:/app/keys
     environment:
@@ -59,7 +60,30 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # --- Monitoring stack ---
+   # --- Flag Watchdog ---
+  flag-watchdog:
+    image: tatou-server:latest
+    command: python /app/monitoring/flag_watchdog.py
+    volumes:
+      - ./server/flag:/app/flag:ro
+      - ./monitoring/flag_watchdog.py:/app/monitoring/flag_watchdog.py:ro
+    depends_on:
+      - server
+    expose:
+      - "9101"
+    restart: unless-stopped
+
+
+   # --- Node Exporter
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    ports:
+      - "9100:9100"
+    restart: unless-stopped
+
+
+   # --- Monitoring stack ---
   prometheus:
     image: prom/prometheus:latest
     ports:
@@ -74,6 +98,8 @@ services:
     image: grafana/grafana:latest
     ports:
       - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana        # persist dashboards, users, config
     depends_on:
       - prometheus
     restart: unless-stopped
@@ -81,3 +107,4 @@ services:
 volumes:
   db-data:
   user-files:
+  grafana-data:
