@@ -46,6 +46,16 @@ def get_engine(app):
 
 # Rmap helper
 def ensure_professor_doc(app) -> int:
+    
+    """
+    Ensure the professor's document exists in the database.
+    When TESTING=1, skip DB access and return a dummy ID instead.
+    """
+    # Skip DB logic entirely in test mode
+    if os.environ.get("TESTING") == "1":
+        print("[TEST MODE] Skipping ensure_professor_doc database initialization")
+        return 1  # Dummy ID for tests
+
     pdf_path = app.config["STORAGE_DIR"] / "files" / "Group_10.pdf"
 
     if not pdf_path.exists():
@@ -83,8 +93,29 @@ def ensure_professor_doc(app) -> int:
 
 def create_app():
     app = Flask(__name__)
+   
+    # --- Enable Prometheus metrics only when not testing ---
+    if os.environ.get("TESTING") != "1":
+        from prometheus_flask_exporter import PrometheusMetrics
 
-    metrics = PrometheusMetrics(app, group_by='endpoint')
+        if not hasattr(app, "metrics"):
+            app.metrics = PrometheusMetrics(app, group_by='endpoint')
+            # Optional service-level info
+            app.metrics.info('tatou_app', 'Tatou watermarking service', version='1.0.0')
+
+        @app.metrics.counter(
+            'rmap_requests_total',
+            'RMAP requests by endpoint and client',
+            labels={
+                'endpoint': lambda: request.endpoint or 'none',
+                'client_ip': lambda: request.remote_addr,
+            },
+        )
+        def count_rmap_requests():
+            """Count RMAP requests by endpoint and client."""
+            pass
+    else:
+        print("[TEST MODE] Skipping Prometheus metrics registration")
 
     # --- Config ---
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-change-me")
