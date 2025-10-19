@@ -20,9 +20,10 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
+        working-directory: server
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ./server[dev]
+          pip install --upgrade pip
+          pip install -e .[dev]
 
       - name: Build and start stack
         run: |
