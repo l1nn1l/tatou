@@ -28,6 +28,8 @@ try:
 except Exception:  # dill is optional
     _pickle = _std_pickle
 
+from dotenv import load_dotenv
+load_dotenv()
 
 import watermarking_utils as WMUtils
 from watermarking_method import WatermarkingMethod
