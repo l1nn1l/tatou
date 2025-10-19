@@ -146,6 +146,11 @@ pytest --cov=src --cov-report=term-missing --cov-report=html
 xdg-open htmlcov/index.html
 ```
 
+### Collect Rmap PDFs
+```bash
+PYTHONPATH=. .venv/bin/python collect_rmap_pdfs.py
+# successful PDF collections will be stored in tatou/collected_pdfs
+```
 
 ### Environment variables and keys 
 ```bash
