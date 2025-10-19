@@ -90,6 +90,7 @@ services:
       - "9090:9090"
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
     depends_on:
       - server
     restart: unless-stopped
@@ -108,3 +109,4 @@ volumes:
   db-data:
   user-files:
   grafana-data:
+  prometheus-data:

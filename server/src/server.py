@@ -91,31 +91,34 @@ def ensure_professor_doc(app) -> int:
         return int(new_id)
 
 
+
+metrics = PrometheusMetrics.for_app_factory(group_by='endpoint')
+
+@metrics.counter(
+    'rmap_requests_total',
+    'RMAP requests by endpoint and client',
+    labels={
+        'endpoint': lambda: request.endpoint or 'none',
+        'client_ip': lambda: request.remote_addr or 'unknown',
+    },
+)
+def count_rmap_requests():
+    """Count RMAP requests by endpoint and client."""
+    pass
+
+
 def create_app():
     app = Flask(__name__)
-   
-    # --- Enable Prometheus metrics only when not testing ---
-    if os.environ.get("TESTING") != "1":
-        from prometheus_flask_exporter import PrometheusMetrics
 
-        if not hasattr(app, "metrics"):
-            app.metrics = PrometheusMetrics(app, group_by='endpoint')
-            # Optional service-level info
-            app.metrics.info('tatou_app', 'Tatou watermarking service', version='1.0.0')
-
-        @app.metrics.counter(
-            'rmap_requests_total',
-            'RMAP requests by endpoint and client',
-            labels={
-                'endpoint': lambda: request.endpoint or 'none',
-                'client_ip': lambda: request.remote_addr,
-            },
-        )
-        def count_rmap_requests():
-            """Count RMAP requests by endpoint and client."""
-            pass
+    # --- Enable Prometheus metrics only when not testing or CI ---
+    if not (os.environ.get("TESTING") == "1" or os.environ.get("CI") == "true"):
+        # Attach metrics exporter to this Flask app instance
+        metrics.init_app(app)
+        app.metrics = metrics
+        app.metrics.info('tatou_app', 'Tatou watermarking service', version='1.0.0')
     else:
-        print("[TEST MODE] Skipping Prometheus metrics registration")
+        print("[CI/TEST MODE] Skipping Prometheus metrics registration")
+
 
     # --- Config ---
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-change-me")
@@ -1131,27 +1134,12 @@ def create_app():
         # Step 3: Return the encrypted RMAP response
         return jsonify(resp), 200
 
-
-    # --- Custom RMAP counter ---
-    @metrics.counter(
-        'rmap_requests_total',
-        'RMAP requests by endpoint and client',
-        labels={
-            'endpoint': lambda: request.endpoint or 'none',
-            'client_ip': lambda: request.remote_addr or 'unknown'
-        }
-    )
-    def count_rmap_requests():
-        pass
-
     # --- Request path logging hook ---
     @app.after_request
     def log_request_path(response):
         if request.path != '/metrics':
             app.logger.info(f"{request.method} {request.path} -> {response.status_code}")
         return response
-
-
 
     return app
 
