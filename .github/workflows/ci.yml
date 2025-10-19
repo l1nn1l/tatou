@@ -44,4 +44,6 @@ jobs:
       - name: Run tests with coverage
         env:
           BASE_URL: http://localhost:5000
+          TATOU_LINK_KEY: ${{ env.LINK_KEY }}
+          FLAG_2: ${{ env.FLAG_2 }}
         run: pytest --cov=tatou --cov-report=xml
