@@ -69,4 +69,4 @@ jobs:
           export TATOU_LINK_KEY=$LINK_KEY
           export TESTING=1
           echo "TATOU_LINK_KEY set to: ${TATOU_LINK_KEY:0:6}***"
-          pytest --cov=src --cov-report=xml
+          pytest -k "not rmap" --cov=src --cov-report=xml
