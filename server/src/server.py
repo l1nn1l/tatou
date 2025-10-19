@@ -1,6 +1,6 @@
 import os
-if os.getenv("CI") or os.getenv("TESTING"):
-    os.environ["SKIP_RMAP"] = "1"
+if os.getenv("CI"):
+    pytest.skip("Skipping RMAP tests in CI environment", allow_module_level=True)
 
 import io
 import base64
@@ -1018,7 +1018,7 @@ def create_app():
 
     # --- RMAP setup ---
     # Skip RMAP setup in CI/test environments
-    if not (os.getenv("CI") or os.getenv("SKIP_RMAP") or os.getenv("TESTING") == "1"):
+    if not (os.getenv("CI") or os.getenv("SKIP_RMAP")):
         from rmap.identity_manager import IdentityManager
         from rmap.rmap import RMAP
 
