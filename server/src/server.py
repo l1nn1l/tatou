@@ -1,4 +1,7 @@
 import os
+if os.getenv("CI") or os.getenv("TESTING"):
+    os.environ["SKIP_RMAP"] = "1"
+
 import io
 import base64
 import json
@@ -1014,125 +1017,129 @@ def create_app():
     
 
     # --- RMAP setup ---
-    from rmap.identity_manager import IdentityManager
-    from rmap.rmap import RMAP
+    # Skip RMAP setup in CI/test environments
+    if not (os.getenv("CI") or os.getenv("SKIP_RMAP") or os.getenv("TESTING") == "1"):
+        from rmap.identity_manager import IdentityManager
+        from rmap.rmap import RMAP
 
-    def find_repo_root() -> Path:
-        src_dir = Path(__file__).resolve().parent
-        for parent in src_dir.parents:
-            if (parent / "keys").exists():
-                return parent
-        raise RuntimeError("Could not locate repo root with 'keys/' folder")
+        def find_repo_root() -> Path:
+            src_dir = Path(__file__).resolve().parent
+            for parent in src_dir.parents:
+                if (parent / "keys").exists():
+                    return parent
+            raise RuntimeError("Could not locate repo root with 'keys/' folder")
 
-    REPO_ROOT = find_repo_root()
+        REPO_ROOT = find_repo_root()
 
-    KEYS_DIR = REPO_ROOT / "keys"
-    PUBKEYS_DIR = KEYS_DIR / "pki"
-    SERVER_PUB = KEYS_DIR / "server_pub.asc"
-    SERVER_PRIV = KEYS_DIR / "server_priv.asc"
+        KEYS_DIR = REPO_ROOT / "keys"
+        PUBKEYS_DIR = KEYS_DIR / "pki"
+        SERVER_PUB = KEYS_DIR / "server_pub.asc"
+        SERVER_PRIV = KEYS_DIR / "server_priv.asc"
 
-    identity_manager = IdentityManager(
-        client_keys_dir=str(PUBKEYS_DIR),
-        server_public_key_path=str(SERVER_PUB),
-        server_private_key_path=str(SERVER_PRIV),
-        server_private_key_passphrase="CLL"
-    )
-    app.rmap = RMAP(identity_manager)
+        identity_manager = IdentityManager(
+            client_keys_dir=str(PUBKEYS_DIR),
+            server_public_key_path=str(SERVER_PUB),
+            server_private_key_path=str(SERVER_PRIV),
+            server_private_key_passphrase="CLL"
+        )
+        app.rmap = RMAP(identity_manager)
 
-    # --- Ensure professor doc exists ---
-    if os.environ.get("TESTING", "0") == "1":
-        # Skip DB in test mode
-        app.config["PROFESSOR_DOC_ID"] = 1  # fake ID for tests
-    else:
-        prof_doc_id = ensure_professor_doc(app)
-        app.config["PROFESSOR_DOC_ID"] = prof_doc_id
+        # --- Ensure professor doc exists ---
+        if os.environ.get("TESTING", "0") == "1":
+            # Skip DB in test mode
+            app.config["PROFESSOR_DOC_ID"] = 1  # fake ID for tests
+        else:
+            prof_doc_id = ensure_professor_doc(app)
+            app.config["PROFESSOR_DOC_ID"] = prof_doc_id
 
 
-    @app.post("/api/rmap-initiate")
-    def rmap_initiate():
-        """
-        Accept RMAP Message 1, return Response 1.
-        """
-        payload = request.get_json(silent=True) or {}
-        if "payload" not in payload:
-            return jsonify({"error": "payload is required"}), 400
+        @app.post("/api/rmap-initiate")
+        def rmap_initiate():
+            """
+            Accept RMAP Message 1, return Response 1.
+            """
+            payload = request.get_json(silent=True) or {}
+            if "payload" not in payload:
+                return jsonify({"error": "payload is required"}), 400
 
-        resp = current_app.rmap.handle_message1(payload)
-        if "error" in resp:
-            return jsonify(resp), 400
+            resp = current_app.rmap.handle_message1(payload)
+            if "error" in resp:
+                return jsonify(resp), 400
 
-        return jsonify(resp), 200
+            return jsonify(resp), 200
 
-    @app.post("/api/rmap-get-link")
-    def rmap_get_link():
-        """
-        Accept RMAP Message 2, return Response 2 (hex result).
-        Also generates a watermarked PDF linked to the session secret.
-        """
-        payload = request.get_json(silent=True) or {}
-        if "payload" not in payload:
-            return jsonify({"error": "payload is required"}), 400
+        @app.post("/api/rmap-get-link")
+        def rmap_get_link():
+            """
+            Accept RMAP Message 2, return Response 2 (hex result).
+            Also generates a watermarked PDF linked to the session secret.
+            """
+            payload = request.get_json(silent=True) or {}
+            if "payload" not in payload:
+                return jsonify({"error": "payload is required"}), 400
 
-        # addition to record external IP addresses
-        client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+            # addition to record external IP addresses
+            client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
 
-	# Step 1: Let RMAP library handle Message 2
-        resp = current_app.rmap.handle_message2(payload)
-        if "error" in resp:
-            return jsonify(resp), 400
+        # Step 1: Let RMAP library handle Message 2
+            resp = current_app.rmap.handle_message2(payload)
+            if "error" in resp:
+                return jsonify(resp), 400
 
-        # Step 2: Extract session secret (32-hex NonceClient||NonceServer)
-        session_secret = resp["result"]
+            # Step 2: Extract session secret (32-hex NonceClient||NonceServer)
+            session_secret = resp["result"]
 
-        # -------------------------------
-        # INSERT WATERMARKING HERE
-        # -------------------------------
-        # Input/output files
-        pdf_in = Path(current_app.config["STORAGE_DIR"]) / "files" / "Group_10.pdf"
-        pdf_out = Path(current_app.config["STORAGE_DIR"]) / "files" / f"{session_secret}.pdf"
+            # -------------------------------
+            # INSERT WATERMARKING HERE
+            # -------------------------------
+            # Input/output files
+            pdf_in = Path(current_app.config["STORAGE_DIR"]) / "files" / "Group_10.pdf"
+            pdf_out = Path(current_app.config["STORAGE_DIR"]) / "files" / f"{session_secret}.pdf"
 
-        try:
-            # Apply XMP-PerPage watermark
-            wm_bytes = WMUtils.apply_watermark(
-                method="xmp-perpage",
-                pdf=str(pdf_in),
-                secret=session_secret,         # watermark = RMAP session secret
-                key="tatou_default_demo_key!", # must be >=16 chars
-                position=None                  # ignored in v1
-            )
-
-            # Save to disk
-            with pdf_out.open("wb") as f:
-                f.write(wm_bytes)
-        except Exception as e:
-            return jsonify({"error": f"Failed to watermark with xmp-perpage: {e}"}), 500
-
-        documentid = current_app.config["PROFESSOR_DOC_ID"]
-        # -------------------------------
-        # Insert DB entry so /get-version/<session_secret> can serve it
-        # -------------------------------
-        try:
-            with get_engine(app).begin() as conn:
-                conn.execute(
-                    text("""
-                        INSERT INTO Versions (documentid, link, intended_for, secret, method, position, path)
-                        VALUES (:documentid, :link, :intended_for, :secret, :method, :position, :path)
-                    """),
-                    {
-                        "documentid": documentid,  
-                        "link": session_secret,
-                        "intended_for": client_ip, #IP captured above
-                        "secret": session_secret,
-                        "method": "xmp-perpage",
-                        "position": "",
-                        "path": str(pdf_out),
-                    },
+            try:
+                # Apply XMP-PerPage watermark
+                wm_bytes = WMUtils.apply_watermark(
+                    method="xmp-perpage",
+                    pdf=str(pdf_in),
+                    secret=session_secret,         # watermark = RMAP session secret
+                    key="tatou_default_demo_key!", # must be >=16 chars
+                    position=None                  # ignored in v1
                 )
-        except Exception as e:
-            return jsonify({"error": f"DB insert failed: {e}"}), 503
 
-        # Step 3: Return the encrypted RMAP response
-        return jsonify(resp), 200
+                # Save to disk
+                with pdf_out.open("wb") as f:
+                    f.write(wm_bytes)
+            except Exception as e:
+                return jsonify({"error": f"Failed to watermark with xmp-perpage: {e}"}), 500
+
+            documentid = current_app.config["PROFESSOR_DOC_ID"]
+            # -------------------------------
+            # Insert DB entry so /get-version/<session_secret> can serve it
+            # -------------------------------
+            try:
+                with get_engine(app).begin() as conn:
+                    conn.execute(
+                        text("""
+                            INSERT INTO Versions (documentid, link, intended_for, secret, method, position, path)
+                            VALUES (:documentid, :link, :intended_for, :secret, :method, :position, :path)
+                        """),
+                        {
+                            "documentid": documentid,  
+                            "link": session_secret,
+                            "intended_for": client_ip, #IP captured above
+                            "secret": session_secret,
+                            "method": "xmp-perpage",
+                            "position": "",
+                            "path": str(pdf_out),
+                        },
+                    )
+            except Exception as e:
+                return jsonify({"error": f"DB insert failed: {e}"}), 503
+
+            # Step 3: Return the encrypted RMAP response
+            return jsonify(resp), 200
+    else:
+        print("[CI/TEST MODE] Skipping RMAP setup to avoid key load and duplicate metrics")
 
     # --- Request path logging hook ---
     @app.after_request
