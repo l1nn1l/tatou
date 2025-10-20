@@ -10,7 +10,7 @@ print("[pytest setup] TESTING=1 environment enabled")
 
 # --- Path setup ---
 # Detect project root dynamically (should be .../tatou or similar)
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve()
 # Move up until we find project root (where sample.pdf or pyproject.toml likely exists)
 for parent in ROOT.parents:
     if (parent / "server").exists():
