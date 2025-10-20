@@ -12,12 +12,12 @@ services:
       - user-files:/app/storage
       - ./keys:/app/keys
     environment:
+      # App-konfig (matchar server.py som läser DB_* variabler)
       - PYTHONUNBUFFERED=1
-      # DB connection details for future use by the API
       - DB_HOST=db
       - DB_PORT=3306
       - DB_NAME=tatou
-      - DB_USER=${MARIADB_USER}
+      - DB_USER=tatou
       - DB_PASSWORD=${MARIADB_PASSWORD}
       - FLAG_2=${FLAG_2}
       - TATOU_LINK_KEY=${LINK_KEY}
@@ -32,7 +32,7 @@ services:
     environment:
       - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
       - MARIADB_DATABASE=tatou
-      - MARIADB_USER=${MARIADB_USER}
+      - MARIADB_USER=tatou
       - MARIADB_PASSWORD=${MARIADB_PASSWORD}
     volumes:
       - db-data:/var/lib/mysql
@@ -51,7 +51,7 @@ services:
     environment:
       - PMA_HOST=db
       - PMA_PORT=3306
-      - UPLOAD_LIMIT=64M     # <-- use a unit and quote if using YAML key:value form
+      - UPLOAD_LIMIT=64M
       - MEMORY_LIMIT=256M
     ports:
       - "8080:80"
@@ -83,7 +83,7 @@ services:
     restart: unless-stopped
 
 
-   # --- Monitoring stack ---
+  # --- Monitoring stack ---
   prometheus:
     image: prom/prometheus:latest
     ports:
