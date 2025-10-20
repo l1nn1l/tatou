@@ -18,7 +18,10 @@ RUN pip install --no-cache-dir -e .
 
 # Copy sources after dependencies installation
 COPY src /app/src
-COPY flag /app/flag
+
+# Copy flag only if it exists
+RUN if [ -f flag ]; then cp flag /app/flag; else echo "flag not found, skipping"; fi
+
 COPY entrypoint.sh /app/entrypoint.sh
 RUN pip install --no-cache-dir -e .
 

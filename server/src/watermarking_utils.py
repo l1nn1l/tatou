@@ -35,6 +35,7 @@ import io
 import json
 import os
 import re
+from lsb_image import LSBImageMethod #LL call for new watermarking method
 
 from watermarking_method import (
     PdfSource,
@@ -43,7 +44,9 @@ from watermarking_method import (
 )
 from add_after_eof import AddAfterEOF
 from unsafe_bash_bridge_append_eof import UnsafeBashBridgeAppendEOF
-from plugins.xmp_perpage import XmpPerPageMethod   # << NY RAD
+from plugins.xmp_perpage import XmpPerPageMethod  
+from watermarking_lsb import LSBWatermark
+
 
 # --------------------
 # Method registry
@@ -52,7 +55,9 @@ from plugins.xmp_perpage import XmpPerPageMethod   # << NY RAD
 METHODS: Dict[str, WatermarkingMethod] = {
     AddAfterEOF.name: AddAfterEOF(),
     UnsafeBashBridgeAppendEOF.name: UnsafeBashBridgeAppendEOF(),
-    XmpPerPageMethod.name: XmpPerPageMethod(),      # << NY RAD
+    LSBImageMethod.name: LSBImageMethod(),
+    XmpPerPageMethod.name: XmpPerPageMethod(),     
+    LSBWatermark.name: LSBWatermark(), 
 }
 """Registry of available watermarking methods.
 
@@ -104,7 +109,7 @@ def is_watermarking_applicable(
     method: str | WatermarkingMethod,
     pdf: PdfSource,
     position: str | None = None,
-) -> bytes:
+) -> bool:
     """Apply a watermark using the specified method and return new PDF bytes."""
     m = get_method(method)
     return m.is_watermark_applicable(pdf=pdf, position=position)

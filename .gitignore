@@ -213,3 +213,39 @@ server/flag
 .mutmut-cache
 .pytest_cache
 .pytest_tmp/
+
+keys/server_priv.asc
+.DS_Store
+.venv/
+fuzzer/fuzz_in/*
+!fuzzer/fuzz_in/.gitkeep
+fuzzer/crashes/*
+!fuzzer/crashes/.gitkeep
+# fuzzing artifacts
+fuzzer/crashes/**
+fuzzer/fuzz_in/**
+# local PDFs used in tests (optional to track)
+tests/*.pdf
+# keys / secrets
+keys/**
+server/keys/**
+# Python junk
+__pycache__/
+*.pyc
+.venv/
+# macOS
+*.DS_Store
+
+# fuzz artifacts & seeds
+fuzzer/crashes/**
+fuzzer/fuzz_in/**
+fuzzer/tests/*.pdf
+
+# secrets / keys
+keys/**
+server/keys/**
+
+# Python
+__pycache__/
+*.pyc
+.venv/

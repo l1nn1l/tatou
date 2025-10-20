@@ -8,16 +8,19 @@ services:
     ports:
       - "5000:5000"
     volumes:
+      - ./server/flag:/app/flag          # host copy
       - user-files:/app/storage
+      - ./keys:/app/keys
     environment:
       # App-konfig (matchar server.py som läser DB_* variabler)
       - PYTHONUNBUFFERED=1
-      - FLAG_2=${FLAG_2}
       - DB_HOST=db
       - DB_PORT=3306
       - DB_NAME=tatou
       - DB_USER=tatou
       - DB_PASSWORD=${MARIADB_PASSWORD}
+      - FLAG_2=${FLAG_2}
+      - TATOU_LINK_KEY=${LINK_KEY}
     depends_on:
       db:
         condition: service_healthy
@@ -57,12 +60,37 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+   # --- Flag Watchdog ---
+  flag-watchdog:
+    image: tatou-server:latest
+    command: python /app/monitoring/flag_watchdog.py
+    volumes:
+      - ./server/flag:/app/flag:ro
+      - ./monitoring/flag_watchdog.py:/app/monitoring/flag_watchdog.py:ro
+    depends_on:
+      - server
+    expose:
+      - "9101"
+    restart: unless-stopped
+
+
+   # --- Node Exporter
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    ports:
+      - "9100:9100"
+    restart: unless-stopped
+
+
+  # --- Monitoring stack ---
   prometheus:
     image: prom/prometheus:latest
     ports:
       - "9090:9090"
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
     depends_on:
       - server
     restart: unless-stopped
@@ -71,6 +99,8 @@ services:
     image: grafana/grafana:latest
     ports:
       - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana        # persist dashboards, users, config
     depends_on:
       - prometheus
     restart: unless-stopped
@@ -78,3 +108,5 @@ services:
 volumes:
   db-data:
   user-files:
+  grafana-data:
+  prometheus-data:
