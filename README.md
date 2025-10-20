@@ -136,6 +136,10 @@ pip install -r requirements.txt
 
 pytest -q <name-of-test> will run the specific test.
 
+#XMP tests
+pytest -q tests/e2e/test_xmp_perpage.py
+pytest -q tests/unit/test_xmp_perpage_unit.py
+
 # All tests will be picked up automatically by pytest. If a test needs authentication, it should create a user and login programmatically.
 ```
 
@@ -146,10 +150,18 @@ pytest --cov=src --cov-report=term-missing --cov-report=html
 xdg-open htmlcov/index.html
 ```
 
+### Mutation test
+```bash
+pytest --cov=src --cov-report=term-missing --cov-report=html 
+# To view the report in the browser
+xdg-open htmlcov/index.html
+```
+
 ### Collect Rmap PDFs
 ```bash
-PYTHONPATH=. .venv/bin/python collect_rmap_pdfs.py
-# successful PDF collections will be stored in tatou/collected_pdfs
+pip install mutmut
+mutmut run
+mutmut results
 ```
 
 ### Environment variables and keys 
