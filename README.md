@@ -152,13 +152,13 @@ xdg-open htmlcov/index.html
 
 ### Collect Rmap PDFs
 ```bash
-pytest --cov=src --cov-report=term-missing --cov-report=html 
-# To view the report in the browser
-xdg-open htmlcov/index.html
+PYTHONPATH=. .venv/bin/python collect_rmap_pdfs.py
+# successful PDF collections will be stored in tatou/collected_pdfs
 ```
 
 ### Mutation test
 ```bash
+cd server
 pip install mutmut
 mutmut run
 mutmut results
