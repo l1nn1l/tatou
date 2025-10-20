@@ -32,7 +32,7 @@ from watermarking_method import (
 )
 
 # Vårt namespace i XMP
-_NS_URI = None
+_NS_URI = "https://tatou.local/wm/1.0/"  # must match tests and XMP schema
 _NS_PREF = "wm"
 
 

@@ -1,6 +1,6 @@
 import os, requests, pathlib, json, time
 
-BASE = os.environ.get("TATOU_BASE","http://127.0.0.1:5050") + "/api"
+BASE = os.environ.get("TATOU_BASE","http://127.0.0.1:5000") + "/api"
 TOKEN = os.environ.get("TOKEN","")
 
 def _token():

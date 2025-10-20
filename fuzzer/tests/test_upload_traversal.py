@@ -1,6 +1,6 @@
 import os, pathlib, requests
 
-BASE = os.environ.get("TATOU_BASE","http://127.0.0.1:5050") + "/api"
+BASE = os.environ.get("TATOU_BASE","http://127.0.0.1:5000") + "/api"
 
 def test_upload_filename_traversal_rejected():
     token = os.environ.get("TOKEN","")
