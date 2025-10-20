@@ -150,14 +150,14 @@ pytest --cov=src --cov-report=term-missing --cov-report=html
 xdg-open htmlcov/index.html
 ```
 
-### Mutation test
+### Collect Rmap PDFs
 ```bash
 pytest --cov=src --cov-report=term-missing --cov-report=html 
 # To view the report in the browser
 xdg-open htmlcov/index.html
 ```
 
-### Collect Rmap PDFs
+### Mutation test
 ```bash
 pip install mutmut
 mutmut run
