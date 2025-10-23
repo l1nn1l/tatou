@@ -20,7 +20,7 @@ services:
       - DB_USER=tatou
       - DB_PASSWORD=${MARIADB_PASSWORD}
       - FLAG_2=${FLAG_2}
-      - TATOU_LINK_KEY=${LINK_KEY}
+      - TATOU_LINK_KEY=${TATOU_LINK_KEY}
     depends_on:
       db:
         condition: service_healthy
