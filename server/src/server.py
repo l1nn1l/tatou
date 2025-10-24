@@ -15,6 +15,8 @@ from flask import Flask, jsonify, request, g, send_file, current_app, abort
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+from werkzeug.exceptions import BadRequest
+
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import IntegrityError
@@ -668,10 +670,6 @@ def create_app():
         
         
     # POST /api/create-watermark or /api/create-watermark/<id>  → create watermarked pdf and returns metadata
-    from flask import request, jsonify, current_app
-    from werkzeug.exceptions import BadRequest
-
-    ALLOWED_METHODS = {"text", "meta", "bits", "best"}
     ALLOWED_POS = {"tl","tr","bl","br","center"}
 
     def _as_str(x, maxlen=4096):
@@ -712,14 +710,17 @@ def create_app():
         secret       = _as_str(payload.get("secret"))
         key          = _as_str(payload.get("key"))
 
-        if method not in ALLOWED_METHODS:
-            return jsonify({"error": "invalid method"}), 422
+        # Dynamic method validation
+        if method not in WM_METHODS:
+            return jsonify({"error": f"invalid method '{method}'"}), 422
+
+        # Validate position and required fields
         if position is not None and position not in ALLOWED_POS:
             return jsonify({"error": "invalid position"}), 422
         if not intended_for:
             return jsonify({"error": "intended_for is required"}), 400
         if key is None or secret is None:
-            return jsonify({"error": "key/secret must be non-empty strings"}), 422
+            return jsonify({"error": "key and secret are required"}), 400
 
         # --- lookup dokument & ägarskap ---
         try:
