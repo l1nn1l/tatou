@@ -6,6 +6,7 @@ import io
 import fitz  # PyMuPDF
 import numpy as np
 from PIL import Image
+import hashlib
 
 from watermarking_method import (
     WatermarkingMethod,
@@ -44,6 +45,17 @@ class LSBWatermark(WatermarkingMethod):
         if not secret:
             raise ValueError("Secret must be non-empty")
 
+        import hashlib, hmac
+
+        # --- Hash the secret (use HMAC if you prefer stronger binding) ---
+        # Simple SHA-256:
+        # secret_hash = hashlib.sha256(secret.encode()).hexdigest()
+        # Or use HMAC-SHA256 (recommended for key binding):
+        secret_hash = hmac.new(key.encode(), secret.encode(), hashlib.sha256).hexdigest()
+
+        secret_bytes = secret_hash.encode("utf-8")
+        secret_bits = [int(b) for ch in secret_bytes for b in f"{ch:08b}"]
+
         data = load_pdf_bytes(pdf)
         doc = fitz.open(stream=data, filetype="pdf")
         page = doc[0]
@@ -52,62 +64,33 @@ class LSBWatermark(WatermarkingMethod):
         pix = page.get_pixmap(dpi=150)
         img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples).convert("L")
         g = np.array(img)
-
-        # # Flatten pixels
-        # flat = g.flatten()
-
-        # # Secret to bits
-        # secret_bytes = secret.encode("utf-8")
-        # secret_bits = [int(b) for ch in secret_bytes for b in f"{ch:08b}"]
-
-        # if len(secret_bits) + 16 > len(flat):
-        #     doc.close()
-        #     raise ValueError("Secret too long for available pixels")
-
-        # # Encode length (16 bits)
-        # length = len(secret_bits)
-        # length_bits = f"{length:016b}"
-        # for i, b in enumerate(length_bits):
-        #     flat[i] = (flat[i] & 0xFE) | int(b)
-
-        # # Encode secret bits
-        # for i, bit in enumerate(secret_bits, start=16):
-        #     flat[i] = (flat[i] & 0xFE) | bit
-
-        # Flatten pixels
         flat = g.flatten()
-
-        # Secret to bits
-        secret_bytes = secret.encode("utf-8")
-        secret_bits = [int(b) for ch in secret_bytes for b in f"{ch:08b}"]
 
         if len(secret_bits) + 16 > len(flat):
             doc.close()
             raise ValueError("Secret too long for available pixels")
 
         # Keyed shuffle of pixel positions
-        import hashlib
-        rng = np.random.default_rng(int.from_bytes(hashlib.sha256(key.encode()).digest()[:8], "big"))
+        rng = np.random.default_rng(
+            int.from_bytes(hashlib.sha256(key.encode()).digest()[:8], "big")
+        )
         positions = np.arange(len(flat))
         rng.shuffle(positions)
 
-        # Encode length (16 bits) in first 16 chosen positions
+        # Encode length (16 bits)
         length = len(secret_bits)
         length_bits = f"{length:016b}"
         for i, b in enumerate(length_bits):
             pos = positions[i]
             flat[pos] = (flat[pos] & 0xFE) | int(b)
 
-        # Encode secret bits in the following positions
+        # Encode secret bits
         for i, bit in enumerate(secret_bits, start=16):
             pos = positions[i]
             flat[pos] = (flat[pos] & 0xFE) | bit
 
-
-        # Reshape back
+        # Rebuild and reinsert image
         g2 = flat.reshape(g.shape)
-
-        # Save as PNG and insert into a fresh page
         buf = io.BytesIO()
         Image.fromarray(g2.astype(np.uint8)).save(buf, format="PNG")
 
@@ -125,24 +108,24 @@ class LSBWatermark(WatermarkingMethod):
         doc.close()
         return out.getvalue()
 
+
     def read_secret(self, pdf: PdfSource, key: str) -> str:
         data = load_pdf_bytes(pdf)
         doc = fitz.open(stream=data, filetype="pdf")
         page = doc[0]
 
-        # Extract largest image
         imgs = page.get_images(full=True)
         if not imgs:
             doc.close()
             raise SecretNotFoundError("No images found in PDF")
 
+        # Pick the largest embedded image
         best = None
         best_area = -1
         for im in imgs:
             xref = im[0]
             info = doc.extract_image(xref)
-            w = int(info.get("width", 0) or 0)
-            h = int(info.get("height", 0) or 0)
+            w, h = int(info.get("width", 0) or 0), int(info.get("height", 0) or 0)
             area = w * h
             if area > best_area and info.get("image"):
                 best = info
@@ -156,18 +139,10 @@ class LSBWatermark(WatermarkingMethod):
         g = np.array(img)
         flat = g.flatten()
 
-        # # Decode length (first 16 bits)
-        # length_bits = [str(flat[i] & 1) for i in range(16)]
-        # length = int("".join(length_bits), 2)
-        # if length <= 0 or length > len(flat) - 16:
-        #     raise SecretNotFoundError("Invalid embedded length")
-
-        # # Decode payload
-        # payload_bits = [str(flat[i] & 1) for i in range(16, 16 + length)]
-
-        # Keyed shuffle of pixel positions (same as embed)
         import hashlib
-        rng = np.random.default_rng(int.from_bytes(hashlib.sha256(key.encode()).digest()[:8], "big"))
+        rng = np.random.default_rng(
+            int.from_bytes(hashlib.sha256(key.encode()).digest()[:8], "big")
+        )
         positions = np.arange(len(flat))
         rng.shuffle(positions)
 
@@ -187,9 +162,7 @@ class LSBWatermark(WatermarkingMethod):
                 break
             chars.append(int("".join(byte), 2))
         try:
-            return bytes(chars).decode("utf-8", errors="ignore")
+            extracted = bytes(chars).decode("utf-8", errors="ignore")
+            return extracted.strip()
         except Exception:
             raise SecretNotFoundError("Failed to decode embedded secret")
-
-
-__all__ = ["DCTWatermark"]
