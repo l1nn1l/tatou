@@ -52,53 +52,6 @@ def get_engine(app):
         app.config["_ENGINE"] = eng
     return eng
 
-# Rmap helper
-def ensure_professor_doc(app) -> int:
-    
-    """
-    Ensure the professor's document exists in the database.
-    When TESTING=1, skip DB access and return a dummy ID instead.
-    """
-    # Skip DB logic entirely in test mode
-    if os.environ.get("TESTING") == "1":
-        print("[TEST MODE] Skipping ensure_professor_doc database initialization")
-        return 1  # Dummy ID for tests
-
-    pdf_path = app.config["STORAGE_DIR"] / "files" / "Group_10.pdf"
-
-    if not pdf_path.exists():
-        print(f"[WARN] Professor doc not found at {pdf_path}, skipping insert")
-        return -1  
-
-    file_bytes = pdf_path.read_bytes()
-    sha256_hex = hashlib.sha256(file_bytes).hexdigest()
-    file_size = pdf_path.stat().st_size
-
-    with get_engine(app).begin() as conn:
-        row = conn.execute(
-            text("SELECT id FROM Documents WHERE name = :name LIMIT 1"),
-            {"name": "Group_10.pdf"},
-        ).first()
-        if row:
-            return int(row.id)
-
-        conn.execute(
-            text("""
-                INSERT INTO Documents (name, path, ownerid, sha256, size)
-                VALUES (:name, :path, :ownerid, UNHEX(:sha256hex), :size)
-            """),
-            {
-                "name": "Group_10.pdf",
-                "path": str(pdf_path),
-                "ownerid": 1,
-                "sha256hex": sha256_hex,
-                "size": file_size,
-            },
-        )
-        new_id = conn.execute(text("SELECT LAST_INSERT_ID()")).scalar()
-        return int(new_id)
-
-
 
 metrics = PrometheusMetrics.for_app_factory(group_by='endpoint')
 
@@ -1100,13 +1053,9 @@ def create_app():
         )
         app.rmap = RMAP(identity_manager)
 
-        # --- Ensure professor doc exists ---
-        if os.environ.get("TESTING", "0") == "1":
-            # Skip DB in test mode
-            app.config["PROFESSOR_DOC_ID"] = 1  # fake ID for tests
-        else:
-            prof_doc_id = ensure_professor_doc(app)
-            app.config["PROFESSOR_DOC_ID"] = prof_doc_id
+
+        # --- Static professor doc ID (we skip ensure_professor_doc) ---
+        app.config["PROFESSOR_DOC_ID"] = 1
 
 
         @app.post("/api/rmap-initiate")
