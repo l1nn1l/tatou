@@ -1,11 +1,16 @@
 #!/bin/bash
+set -euo pipefail
+
 # backup_storage.sh — backs up Tatou’s storage directory
 
-DATE=$(date +'%Y%m%d_%H%M%S')
-SRC="./storage"
-DEST="./backups/storage_$DATE"
+# --- Configuration ---
+BASE_DIR="/home/lab"
+SRC="$BASE_DIR/storage"
+BACKUP_DIR="$BASE_DIR/backups/storage"
+DATE=$(date +"%Y-%m-%d_%H-%M")
 
-mkdir -p ./backups
-cp -r "$SRC" "$DEST"
+# --- Run backup ---
+mkdir -p "$BACKUP_DIR"
+/bin/cp -r "$SRC" "$BACKUP_DIR/storage_$DATE"
 
-echo "[+] Storage directory backed up to $DEST"
+/bin/echo "[+] Storage directory backed up to $BACKUP_DIR/storage_$DATE"

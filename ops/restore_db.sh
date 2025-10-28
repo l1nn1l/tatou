@@ -1,15 +1,22 @@
 #!/bin/bash
+set -euo pipefail
+
 # restore_db.sh — restore the Tatou database from a dump
 
+# --- Load environment variables (for DB password etc.) ---
+set -a
+source /home/lab/tatou/.env
+set +a
+
 # --- Configuration ---
-DB_CONTAINER="tatou-db-1"     # check with `docker ps`
-DB_USER="tatou"
-DB_PASS="tatou"
+DB_CONTAINER="tatou-db-1"       # check with `docker ps`
+DB_USER="root"
+DB_PASS="${MARIADB_ROOT_PASSWORD}"
 DB_NAME="tatou"
-BACKUP_DIR="/home/lab/tatou/backups/db"
+BACKUP_DIR="/home/lab/backups"
 
 # --- Select most recent dump ---
-LATEST_DUMP=$(ls -t ${BACKUP_DIR}/tatou_*.sql 2>/dev/null | head -n 1)
+LATEST_DUMP=$(ls -t ${BACKUP_DIR}/db_*.sql.gz 2>/dev/null | head -n 1 || true)
 
 if [ -z "$LATEST_DUMP" ]; then
     echo "[!] No backup SQL file found in $BACKUP_DIR"
@@ -18,12 +25,12 @@ fi
 
 echo "[*] Restoring database from: $LATEST_DUMP"
 
-# --- Run restore inside DB container ---
-cat "$LATEST_DUMP" | docker exec -i "$DB_CONTAINER" \
-    mysql -u"$DB_USER" -p"$DB_PASS" "$DB_NAME"
+# --- Decompress if needed ---
+TMP_SQL="/tmp/restore_$$.sql"
+gunzip -c "$LATEST_DUMP" > "$TMP_SQL"
 
-if [ $? -eq 0 ]; then
-    echo "[+] Database successfully restored."
-else
-    echo "[!] Restore failed."
-fi
+# --- Run restore inside DB container ---
+/usr/bin/docker exec -i "$DB_CONTAINER" mariadb -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" < "$TMP_SQL"
+
+/bin/rm -f "$TMP_SQL"
+/bin/echo "[+] Database restored successfully."
