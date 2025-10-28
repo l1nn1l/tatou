@@ -25,7 +25,7 @@ def test_lsb_roundtrip():
     assert got == secret
 
 def test_lsb_no_capacity_raises():
-    # 4x4 image has capacity 4*4*3 = 48 bits, which is < header(64) + 8*len(secret)
+    # 4x4 image has capacity 4*4*3 = 48 bits, which is < header(56) + 8*len(secret)
     m = LSBImageMethod()
     key = "0" * 32
     pdf = _pdf_with_png(size=(4, 4))
