@@ -68,10 +68,10 @@ cd tatou
 ```bash
     # These are consumed by Docker and/or the app:
     TATOU_LINK_KEY — required by signed link utilities. # Set in docker-compose.yml under services.server.environment.
-    Keys: server/keys/ is bind-mounted into the container:
+    Keys: keys/ is bind-mounted into the container:
     server_priv.asc (required)
     server_pub.asc
-    server/keys/pki/ (group public keys)
+    tatou/keys/pki/ (group public keys)
 #Ports
     App: container listens on 5000, published as 5000 on the host.
     DB: MariaDB on 3306 (host → container).
@@ -92,7 +92,7 @@ docker compose ps
 
 Publishes app on http://127.0.0.1:5000
 Initializes MariaDB with db/tatou.sql
-Mounts server/keys to /app/keys
+Mounts /keys to /app/keys
 Persists user files under a Docker volume at /app/storage
 
 ```
@@ -171,8 +171,8 @@ mutmut results
     MARIADB_ROOT_PASSWORD=rootpass123
     TATOU_LINK_KEY=<random-hex-or-base64-string>
 
-#The server also requires OpenPGP keys mounted at server/keys/:
-server/keys/
+#The server also requires OpenPGP keys mounted at /keys/:
+keys/
   server_priv.asc
   server_pub.asc
   pki/
