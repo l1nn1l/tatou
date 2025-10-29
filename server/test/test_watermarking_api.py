@@ -1,5 +1,6 @@
 import requests
 import time
+import pytest
 
 BASE_URL = "http://localhost:5000"
 

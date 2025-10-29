@@ -23,7 +23,7 @@ jobs:
         working-directory: server
         run: |
           pip install --upgrade pip
-          pip install -e .[dev]
+          pip install -e "server/[dev]"
 
       - name: Build and start stack
         run: |
@@ -71,5 +71,5 @@ jobs:
           SERVER_PID=$!
           echo "Server started with PID $SERVER_PID"
           sleep 5
-          pytest -k "not rmap" --cov=src --cov-report=xml
+          pytest -k "not rmap" --cov=server/src --cov-report=xml
           kill $SERVER_PID

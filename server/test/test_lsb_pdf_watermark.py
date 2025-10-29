@@ -1,5 +1,6 @@
 from pathlib import Path
 import hashlib, hmac
+import pytest
 
 from watermarking_utils import apply_watermark, read_watermark
 

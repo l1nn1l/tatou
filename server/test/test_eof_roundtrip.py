@@ -1,5 +1,6 @@
 import io
 import fitz
+import pytest
 from add_after_eof import AddAfterEOF
 
 def _blank_pdf() -> bytes:

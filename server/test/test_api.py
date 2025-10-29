@@ -1,5 +1,6 @@
 import base64, json
 from server import app
+import pytest
 
 def test_healthz_route():
     client = app.test_client()

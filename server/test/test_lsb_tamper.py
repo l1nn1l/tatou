@@ -1,5 +1,6 @@
 import io
 import fitz
+import pytest
 from PIL import Image
 from lsb_image import LSBImageMethod, HEADER_BYTES
 from watermarking_method import InvalidKeyError

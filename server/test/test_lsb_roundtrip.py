@@ -1,4 +1,5 @@
 import io
+import pytest
 import fitz
 from PIL import Image
 from lsb_image import LSBImageMethod

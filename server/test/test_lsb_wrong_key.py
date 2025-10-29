@@ -2,6 +2,7 @@
 from lsb_image import LSBImageMethod
 from watermarking_method import InvalidKeyError
 from test_lsb_roundtrip import _pdf_with_png
+import pytest
 
 def test_wrong_key_fails():
     m = LSBImageMethod()
