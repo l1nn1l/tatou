@@ -23,7 +23,7 @@ jobs:
         working-directory: server
         run: |
           pip install --upgrade pip
-          pip install -e "server/[dev]"
+          pip install -e '.[dev]'
 
       - name: Build and start stack
         run: |
